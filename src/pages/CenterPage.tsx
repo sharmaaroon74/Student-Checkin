@@ -1,11 +1,38 @@
 import React, { useMemo, useState } from 'react'
 import { StudentRow, Status, SchoolName } from '../types'
-import { StudentRow as RowComp, StudentVM } from '../components/StudentList'
 
-export default function CenterPage({ students, roster, onSet }:{ 
-  students: StudentRow[], 
-  roster: Record<string, Status>, 
-  onSet:(id:string, st: Status)=>void 
+type StudentVM = {
+  id: string
+  name: string
+  room: number | null
+  school: 'Bain'|'QG'|'MHE'|'MC'
+  status: Status
+}
+
+function Row({ s, primaryLabel, onPrimary, onUndo }:{
+  s: StudentVM,
+  primaryLabel: string,
+  onPrimary: (id:string)=>void,
+  onUndo: (id:string)=>void
+}){
+  return (
+    <div className="item">
+      <div>
+        <div className="heading">{s.name}</div>
+        <div className="muted" style={{fontSize:13}}>Room {s.room ?? '-'} • {s.school} • Status: <b>{s.status}</b></div>
+      </div>
+      <div className="row">
+        <button className="btn small" onClick={()=>onUndo(s.id)}>Undo</button>
+        <button className="btn small" onClick={()=>onPrimary(s.id)}>{primaryLabel}</button>
+      </div>
+    </div>
+  )
+}
+
+export default function CenterPage({ students, roster, onSet }:{
+  students: StudentRow[],
+  roster: Record<string, Status>,
+  onSet:(id:string, st: Status)=>void
 }){
   const [tab, setTab] = useState<'in'|'out'>('in')
   const [schools, setSchools] = useState<SchoolName[]|['All']>(['All'])
@@ -28,12 +55,17 @@ export default function CenterPage({ students, roster, onSet }:{
     status: roster[s.id] ?? 'not_picked'
   })), [students, roster])
 
-  const schoolFiltered = vm.filter(s => (schools[0]==='All') || (schools as SchoolName[]).includes(s.school))
+  const bySchool = vm.filter(s => (schools[0]==='All') || (schools as SchoolName[]).includes(s.school))
 
-  const centerCheckinList = schoolFiltered.filter(s => s.status==='picked' || s.status==='not_picked')
-  const directCheckinCandidates = schoolFiltered.filter(s => s.status==='not_picked' || s.status==='skipped')
-  const checkoutList = schoolFiltered.filter(s => s.status==='arrived')
-  const checkedOut = schoolFiltered.filter(s => s.status==='checked')
+  // Center Check-in (from Bus): ONLY students already 'picked'
+  const centerCheckin = bySchool.filter(s => s.status === 'picked')
+
+  // Direct Check-in (No Bus): ONLY students 'not_picked'
+  const directCheckin = bySchool.filter(s => s.status === 'not_picked')
+
+  // Checkout list: ONLY 'arrived'
+  const checkoutList = bySchool.filter(s => s.status === 'arrived')
+  const checkedOut = bySchool.filter(s => s.status === 'checked')
 
   return (
     <div className="card">
@@ -55,15 +87,27 @@ export default function CenterPage({ students, roster, onSet }:{
           <div>
             <h3 className="heading">Center Check-in (from Bus)</h3>
             <div className="list" style={{marginTop:8}}>
-              {centerCheckinList.map(s=> <RowComp key={s.id} s={s} onSet={(id,st)=> onSet(id, st==='picked'?'arrived':st)} />)}
-              {!centerCheckinList.length && <div className="muted">No students</div>}
+              {centerCheckin.map(s=> (
+                <Row key={s.id} s={s}
+                  primaryLabel="Mark Arrived"
+                  onPrimary={(id)=> onSet(id, 'arrived')}
+                  onUndo={(id)=> onSet(id, 'not_picked')}
+                />
+              ))}
+              {!centerCheckin.length && <div className="muted">No students (waiting for Picked on Bus)</div>}
             </div>
           </div>
           <div>
             <h3 className="heading">Direct Check-in (No Bus)</h3>
             <div className="list" style={{marginTop:8}}>
-              {directCheckinCandidates.map(s=> <RowComp key={s.id} s={s} onSet={(id)=> onSet(id, 'arrived')} />)}
-              {!directCheckinCandidates.length && <div className="muted">No students</div>}
+              {directCheckin.map(s=> (
+                <Row key={s.id} s={s}
+                  primaryLabel="Mark Arrived"
+                  onPrimary={(id)=> onSet(id, 'arrived')}
+                  onUndo={(id)=> onSet(id, 'not_picked')}
+                />
+              ))}
+              {!directCheckin.length && <div className="muted">No students</div>}
             </div>
           </div>
         </div>
@@ -74,14 +118,26 @@ export default function CenterPage({ students, roster, onSet }:{
           <div>
             <h3 className="heading">Checkout</h3>
             <div className="list" style={{marginTop:8}}>
-              {checkoutList.map(s=> <RowComp key={s.id} s={s} onSet={(id)=> onSet(id, 'checked')} />)}
+              {checkoutList.map(s=> (
+                <Row key={s.id} s={s}
+                  primaryLabel="Check Out"
+                  onPrimary={(id)=> onSet(id, 'checked')}
+                  onUndo={(id)=> onSet(id, 'arrived')}
+                />
+              ))}
               {!checkoutList.length && <div className="muted">No students ready to check out</div>}
             </div>
           </div>
           <div>
             <h3 className="heading">Checked Out</h3>
             <div className="list" style={{marginTop:8}}>
-              {checkedOut.map(s=> <RowComp key={s.id} s={s} onSet={(id)=> onSet(id, 'arrived')} />)}
+              {checkedOut.map(s=> (
+                <Row key={s.id} s={s}
+                  primaryLabel="Undo to Arrived"
+                  onPrimary={(id)=> onSet(id, 'arrived')}
+                  onUndo={(id)=> onSet(id, 'arrived')}
+                />
+              ))}
               {!checkedOut.length && <div className="muted">None</div>}
             </div>
           </div>
