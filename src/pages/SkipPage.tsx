@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { StudentRow, Status } from '../types'
+import { StudentRow, Status, SchoolName } from '../types'
 import { supabase } from '../lib/supabase'
 
 type StudentVM = {
@@ -21,6 +21,8 @@ export default function SkipPage({
   onSet:(id:string, st: Status)=>void 
 }){
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
+  const [school, setSchool] = useState<SchoolName | 'All'>('All')
+  const [q, setQ] = useState('')
 
   const vm = useMemo<StudentVM[]>(()=> students.map(s=>({
     id: s.id,
@@ -36,8 +38,13 @@ export default function SkipPage({
       ? a.first.localeCompare(b.first) || a.last.localeCompare(b.last)
       : a.last.localeCompare(b.last) || a.first.localeCompare(b.first)
 
-  const skipped   = vm.filter(s => s.status === 'skipped').sort(sortFn)
-  const candidates= vm.filter(s => s.status !== 'skipped').sort(sortFn)
+  const qlc = q.trim().toLowerCase()
+  const matchesSearch = (s: StudentVM) => !qlc || s.first.toLowerCase().includes(qlc) || s.last.toLowerCase().includes(qlc)
+
+  const filtered = vm.filter(s => (school === 'All' || s.school === school) && matchesSearch(s))
+
+  const skipped   = filtered.filter(s => s.status === 'skipped').sort(sortFn)
+  const candidates= filtered.filter(s => s.status !== 'skipped').sort(sortFn)
 
   async function skipToday(studentId: string) {
     const prev = (roster[studentId] ?? 'not_picked') as Status
@@ -80,11 +87,22 @@ export default function SkipPage({
         <div className="row spread">
           <h3 className="heading">Mark Skip Today</h3>
           <div className="row">
-            <span className="muted" style={{ marginRight: 6 }}>Sort</span>
-            <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
-              <option value="first">First name</option>
-              <option value="last">Last name</option>
-            </select>
+            {(['All', 'Bain', 'QG', 'MHE', 'MC'] as const).map(sc => (
+              <button key={sc} className={'chip ' + (school === sc ? 'active' : '')} onClick={() => setSchool(sc as any)}>{sc}</button>
+            ))}
+            <div className="row" style={{ marginLeft: 8 }}>
+              <span className="muted" style={{ marginRight: 6 }}>Sort</span>
+              <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
+                <option value="first">First name</option>
+                <option value="last">Last name</option>
+              </select>
+            </div>
+            <input
+              placeholder="Search name…"
+              value={q}
+              onChange={e=>setQ(e.target.value)}
+              style={{ marginLeft: 8, minWidth: 180 }}
+            />
           </div>
         </div>
         <div className="list" style={{marginTop:12}}>
@@ -103,15 +121,27 @@ export default function SkipPage({
           {!candidates.length && <div className="muted">No candidates</div>}
         </div>
       </div>
+
       <div className="card">
         <div className="row spread">
           <h3 className="heading">Skipped Today</h3>
           <div className="row">
-            <span className="muted" style={{ marginRight: 6 }}>Sort</span>
-            <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
-              <option value="first">First name</option>
-              <option value="last">Last name</option>
-            </select>
+            {(['All', 'Bain', 'QG', 'MHE', 'MC'] as const).map(sc => (
+              <button key={sc} className={'chip ' + (school === sc ? 'active' : '')} onClick={() => setSchool(sc as any)}>{sc}</button>
+            ))}
+            <div className="row" style={{ marginLeft: 8 }}>
+              <span className="muted" style={{ marginRight: 6 }}>Sort</span>
+              <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
+                <option value="first">First name</option>
+                <option value="last">Last name</option>
+              </select>
+            </div>
+            <input
+              placeholder="Search name…"
+              value={q}
+              onChange={e=>setQ(e.target.value)}
+              style={{ marginLeft: 8, minWidth: 180 }}
+            />
           </div>
         </div>
         <div className="list" style={{marginTop:12}}>
@@ -122,7 +152,6 @@ export default function SkipPage({
                 <div className="muted" style={{fontSize:13}}>{s.school} • Status: <b>skipped</b></div>
               </div>
               <div className="row">
-                {/* Per request: ONLY "Unskip Today" here; no Undo */}
                 <button className="btn small" onClick={()=>unskipToday(s.id)}>Unskip Today</button>
               </div>
             </div>
