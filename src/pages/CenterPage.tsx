@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { StudentRow, Status, SchoolName } from '../types'
+import { supabase } from '../lib/supabase'
 
 type StudentVM = {
   id: string
@@ -8,6 +9,8 @@ type StudentVM = {
   school: 'Bain'|'QG'|'MHE'|'MC'
   status: Status
 }
+
+const todayKey = () => new Date().toISOString().slice(0,10)
 
 function Row({ s, primaryLabel, onPrimary, onUndo }:{
   s: StudentVM,
@@ -29,7 +32,9 @@ function Row({ s, primaryLabel, onPrimary, onUndo }:{
   )
 }
 
-export default function CenterPage({ students, roster, onSet }:{
+export default function CenterPage({
+  students, roster, onSet
+}:{
   students: StudentRow[],
   roster: Record<string, Status>,
   onSet:(id:string, st: Status)=>void
@@ -57,15 +62,81 @@ export default function CenterPage({ students, roster, onSet }:{
 
   const bySchool = vm.filter(s => (schools[0]==='All') || (schools as SchoolName[]).includes(s.school))
 
-  // Center Check-in (from Bus): ONLY students already 'picked'
+  // (3) Center Check-in (from Bus): ONLY 'picked'
   const centerCheckin = bySchool.filter(s => s.status === 'picked')
 
-  // Direct Check-in (No Bus): ONLY students 'not_picked'
+  // (4) Direct Check-in (No Bus): ONLY 'not_picked'
   const directCheckin = bySchool.filter(s => s.status === 'not_picked')
 
-  // Checkout list: ONLY 'arrived'
+  // (5) Checkout lists
   const checkoutList = bySchool.filter(s => s.status === 'arrived')
-  const checkedOut = bySchool.filter(s => s.status === 'checked')
+  const checkedOut   = bySchool.filter(s => s.status === 'checked')
+
+  async function markArrived(studentId: string) {
+    const prev = (roster[studentId] ?? 'not_picked') as Status // should be 'picked' or 'not_picked'
+    const today = todayKey()
+    const { error } = await supabase.rpc('api_set_status', {
+      p_student_id: studentId,
+      p_roster_date: today,
+      p_new_status: 'arrived',
+      p_pickup_person: null,
+      p_meta: { source: 'ui', prev_status: prev, arrived_via: prev }
+    })
+    if (error) { alert(error.message); return }
+    // optimistic update
+    onSet(studentId, 'arrived')
+  }
+
+  async function undoArrived(studentId: string) {
+    const today = todayKey()
+    // Find the most recent 'arrived' log for today (should contain meta.prev_status)
+    const { data, error } = await supabase
+      .from('logs')
+      .select('action, meta')
+      .eq('roster_date', today)
+      .eq('student_id', studentId)
+      .eq('action', 'arrived')
+      .order('at', { ascending: false })
+      .limit(1)
+    if (error) { alert(error.message); return }
+    const prev = (data?.[0]?.meta?.prev_status as Status) || 'picked' // fallback
+    const { error: e2 } = await supabase.rpc('api_set_status', {
+      p_student_id: studentId,
+      p_roster_date: today,
+      p_new_status: prev,
+      p_pickup_person: null,
+      p_meta: { source: 'ui', undo_of: 'arrived' }
+    })
+    if (e2) { alert(e2.message); return }
+    onSet(studentId, prev)
+  }
+
+  async function checkout(studentId: string) {
+    const today = todayKey()
+    const { error } = await supabase.rpc('api_set_status', {
+      p_student_id: studentId,
+      p_roster_date: today,
+      p_new_status: 'checked',
+      p_pickup_person: null,
+      p_meta: { source: 'ui' }
+    })
+    if (error) { alert(error.message); return }
+    onSet(studentId, 'checked')
+  }
+
+  async function undoCheckout(studentId: string) {
+    // Undo checkout always returns to 'arrived'
+    const today = todayKey()
+    const { error } = await supabase.rpc('api_set_status', {
+      p_student_id: studentId,
+      p_roster_date: today,
+      p_new_status: 'arrived',
+      p_pickup_person: null,
+      p_meta: { source: 'ui', undo_of: 'checked' }
+    })
+    if (error) { alert(error.message); return }
+    onSet(studentId, 'arrived')
+  }
 
   return (
     <div className="card">
@@ -90,8 +161,21 @@ export default function CenterPage({ students, roster, onSet }:{
               {centerCheckin.map(s=> (
                 <Row key={s.id} s={s}
                   primaryLabel="Mark Arrived"
-                  onPrimary={(id)=> onSet(id, 'arrived')}
-                  onUndo={(id)=> onSet(id, 'not_picked')}
+                  onPrimary={(id)=> markArrived(id)}
+                  onUndo={(id)=> {
+                    // Undo here: send them back to not_picked (pre-bus) if needed,
+                    // but typical use is undo from 'picked' to 'not_picked'
+                    supabase.rpc('api_set_status', {
+                      p_student_id: id,
+                      p_roster_date: todayKey(),
+                      p_new_status: 'not_picked',
+                      p_pickup_person: null,
+                      p_meta: { source: 'ui', undo_from: 'picked' }
+                    }).then(({ error })=>{
+                      if(error){ alert(error.message); return }
+                      onSet(id, 'not_picked')
+                    })
+                  }}
                 />
               ))}
               {!centerCheckin.length && <div className="muted">No students (waiting for Picked on Bus)</div>}
@@ -103,8 +187,11 @@ export default function CenterPage({ students, roster, onSet }:{
               {directCheckin.map(s=> (
                 <Row key={s.id} s={s}
                   primaryLabel="Mark Arrived"
-                  onPrimary={(id)=> onSet(id, 'arrived')}
-                  onUndo={(id)=> onSet(id, 'not_picked')}
+                  onPrimary={(id)=> markArrived(id)}
+                  onUndo={(id)=> {
+                    // Already not_picked — keep Undo as a no-op to not surprise staff
+                    onSet(id, 'not_picked')
+                  }}
                 />
               ))}
               {!directCheckin.length && <div className="muted">No students</div>}
@@ -121,8 +208,8 @@ export default function CenterPage({ students, roster, onSet }:{
               {checkoutList.map(s=> (
                 <Row key={s.id} s={s}
                   primaryLabel="Check Out"
-                  onPrimary={(id)=> onSet(id, 'checked')}
-                  onUndo={(id)=> onSet(id, 'arrived')}
+                  onPrimary={(id)=> checkout(id)}
+                  onUndo={(id)=> undoArrived(id)}
                 />
               ))}
               {!checkoutList.length && <div className="muted">No students ready to check out</div>}
@@ -134,8 +221,8 @@ export default function CenterPage({ students, roster, onSet }:{
               {checkedOut.map(s=> (
                 <Row key={s.id} s={s}
                   primaryLabel="Undo to Arrived"
-                  onPrimary={(id)=> onSet(id, 'arrived')}
-                  onUndo={(id)=> onSet(id, 'arrived')}
+                  onPrimary={(id)=> undoCheckout(id)}
+                  onUndo={(id)=> undoCheckout(id)}
                 />
               ))}
               {!checkedOut.length && <div className="muted">None</div>}
