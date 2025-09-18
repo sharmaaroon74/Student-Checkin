@@ -35,12 +35,9 @@ function Row({
   onPrimary: (id:string)=>void,
   onUndo: (id:string)=>void,
   lastUpdateIso?: string,
-  /** If true, show time even if status is picked/skipped/not_picked */
   forceShowTime?: boolean,
-  /** If provided, replace the status text label */
   labelOverride?: string
 }){
-  // default: hide for picked/skipped; show for arrived/checked
   const defaultHide = s.status === 'picked' || s.status === 'skipped' || s.status === 'not_picked'
   const showTime = forceShowTime ? true : !defaultHide
   const time = showTime ? fmtEST(lastUpdateIso) : ''
@@ -89,6 +86,7 @@ export default function CenterPage({
   const [schools, setSchools] = useState<SchoolName[]|['All']>(['All'])
   const [lastUpdateMap, setLastUpdateMap] = useState<Record<string, string>>({})
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
+  const [q, setQ] = useState('')
 
   // Verify Pickup modal
   const [showVerify, setShowVerify] = useState(false)
@@ -108,7 +106,7 @@ export default function CenterPage({
     })
   }
 
-  // Load last_update timestamps whenever roster changes
+  // Load last_update timestamps
   useEffect(() => {
     (async () => {
       const { data } = await supabase
@@ -138,7 +136,12 @@ export default function CenterPage({
       ? a.first.localeCompare(b.first) || a.last.localeCompare(b.last)
       : a.last.localeCompare(b.last) || a.first.localeCompare(b.first)
 
-  const bySchool = vm.filter(s => (schools[0]==='All') || (schools as SchoolName[]).includes(s.school as any))
+  const qlc = q.trim().toLowerCase()
+  const matchesSearch = (s: StudentVM) => !qlc || s.first.toLowerCase().includes(qlc) || s.last.toLowerCase().includes(qlc)
+
+  const bySchool = vm.filter(s =>
+    ((schools[0]==='All') || (schools as SchoolName[]).includes(s.school as any)) && matchesSearch(s)
+  )
 
   // Center Check-in (from Bus): ONLY 'picked'
   const centerCheckin = bySchool.filter(s => s.status === 'picked').sort(sortFn)
@@ -156,12 +159,10 @@ export default function CenterPage({
   const checkedOut   = bySchool.filter(s => s.status === 'checked').sort(sortFn)
 
   async function markArrived(studentId: string) {
-    const prev = (roster[studentId] ?? 'not_picked') as Status // 'picked' or 'not_picked'
+    const prev = (roster[studentId] ?? 'not_picked') as Status
     const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId,
-      p_roster_date: todayKey(),
-      p_new_status: 'arrived',
-      p_pickup_person: null,
+      p_student_id: studentId, p_roster_date: todayKey(),
+      p_new_status: 'arrived', p_pickup_person: null,
       p_meta: { source: 'ui', prev_status: prev, arrived_via: prev }
     })
     if (error) { alert(error.message); return }
@@ -194,10 +195,8 @@ export default function CenterPage({
     const chosen = (selectedName && selectedName.trim()) || (overrideName && overrideName.trim())
     if (!chosen) { alert('Please select an approved pickup OR enter an admin override name.'); return }
     const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: verifyStudent.id,
-      p_roster_date: todayKey(),
-      p_new_status: 'checked',
-      p_pickup_person: chosen,
+      p_student_id: verifyStudent.id, p_roster_date: todayKey(),
+      p_new_status: 'checked', p_pickup_person: chosen,
       p_meta: { source: 'ui', pickup_time_edit: pickupTime }
     })
     if (error) { alert(error.message); return }
@@ -233,6 +232,12 @@ export default function CenterPage({
               <option value="last">Last name</option>
             </select>
           </div>
+          <input
+            placeholder="Search name…"
+            value={q}
+            onChange={e=>setQ(e.target.value)}
+            style={{ marginLeft: 8, minWidth: 180 }}
+          />
         </div>
       </div>
 
@@ -256,7 +261,7 @@ export default function CenterPage({
                     })
                   }}
                   lastUpdateIso={lastUpdateMap[s.id]}
-                  forceShowTime={true}            // ✳️ show time even for status=picked
+                  forceShowTime={true}  // show time for picked here
                 />
               ))}
               {!centerCheckin.length && <div className="muted">No students (waiting for Picked on Bus)</div>}
@@ -305,7 +310,7 @@ export default function CenterPage({
                   onPrimary={(id)=> undoCheckout(id)}
                   onUndo={(id)=> undoCheckout(id)}
                   lastUpdateIso={lastUpdateMap[s.id]}
-                  labelOverride="checked-out"     // ✳️ display text
+                  labelOverride="checked-out"
                 />
               ))}
               {!checkedOut.length && <div className="muted">None</div>}
@@ -314,7 +319,7 @@ export default function CenterPage({
         </div>
       )}
 
-      {/* Verify Pickup Modal (unchanged from your last version) */}
+      {/* Verify Pickup Modal */}
       <Modal open={showVerify} title="Verify Pickup" onClose={()=> setShowVerify(false)}>
         {verifyStudent && (
           <div style={{display:'grid', gap:12}}>

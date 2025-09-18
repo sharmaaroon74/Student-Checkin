@@ -19,16 +19,12 @@ const fmtEST = (iso?: string) => {
   try {
     const d = new Date(iso)
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }) + ' EST'
-  } catch {
-    return ''
-  }
+  } catch { return '' }
 }
 
 const ALLOWED_SCHOOLS: string[] = ['Bain', 'QG', 'MHE', 'MC']
 const BUS_ALLOWED_PROGRAMS: string[] = [
-  'FT - A', 'FT - B/A',
-  'PT3 - A - TWR', 'PT3 - A - MWF',
-  'PT2 - A - WR', 'PT3 - A - TWF'
+  'FT - A', 'FT - B/A', 'PT3 - A - TWR', 'PT3 - A - MWF', 'PT2 - A - WR', 'PT3 - A - TWF'
 ]
 
 function RowBus({
@@ -39,10 +35,9 @@ function RowBus({
   onSkip: (id: string) => void
   onUndo: (id: string) => void
   lastUpdateIso?: string
-  /** if true, never show time; otherwise default rule (hide for picked/skipped/not_picked as configured) */
   forceHideTime?: boolean
 }) {
-  // ✳️ Bus page rule now: DO NOT show time for not_picked; still hide for picked/skipped (original rule)
+  // Hide time for picked/skipped/not_picked on Bus
   const defaultHide = s.status === 'picked' || s.status === 'skipped' || s.status === 'not_picked'
   const showTime = !forceHideTime && !defaultHide
   const time = showTime ? fmtEST(lastUpdateIso) : ''
@@ -73,13 +68,14 @@ export default function BusPage({
   const [school, setSchool] = useState<SchoolName | 'All'>('All')
   const [lastUpdateMap, setLastUpdateMap] = useState<Record<string, string>>({})
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
+  const [q, setQ] = useState('')
 
-  // Load today's last_update timestamps (for time labels)
+  // Load timestamps for time badges
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from('roster_status')
-        .select('student_id,last_update,current_status')
+        .select('student_id,last_update')
         .eq('roster_date', todayKey())
       const m: Record<string, string> = {}
       ;(data || []).forEach((r: any) => { m[r.student_id] = r.last_update })
@@ -107,18 +103,20 @@ export default function BusPage({
       ? a.first.localeCompare(b.first) || a.last.localeCompare(b.last)
       : a.last.localeCompare(b.last) || a.first.localeCompare(b.first)
 
-  const filteredBySchool = vm.filter(s => school === 'All' || s.school === school)
+  const qlc = q.trim().toLowerCase()
+  const matchesSearch = (s: StudentVM) => !qlc || s.first.toLowerCase().includes(qlc) || s.last.toLowerCase().includes(qlc)
 
-  // To Pick Up filters + not_picked
-  const toPickup = filteredBySchool.filter(s =>
+  const bySchool = vm.filter(s => (school === 'All' || s.school === school) && matchesSearch(s))
+
+  // To Pick Up (only not_picked + allowed schools/programs + active)
+  const toPickup = bySchool.filter(s =>
     s.status === 'not_picked'
     && s.active === true
     && ALLOWED_SCHOOLS.includes(s.school)
     && (s.school_year ? BUS_ALLOWED_PROGRAMS.includes(s.school_year) : false)
   ).sort(sortFn)
 
-  const picked = filteredBySchool.filter(s => s.status === 'picked').sort(sortFn)
-  const skipped = filteredBySchool.filter(s => s.status === 'skipped').sort(sortFn)
+  const skipped = bySchool.filter(s => s.status === 'skipped').sort(sortFn)
 
   return (
     <div className="grid cols-2">
@@ -136,6 +134,12 @@ export default function BusPage({
                 <option value="last">Last name</option>
               </select>
             </div>
+            <input
+              placeholder="Search name…"
+              value={q}
+              onChange={e=>setQ(e.target.value)}
+              style={{ marginLeft: 8, minWidth: 180 }}
+            />
           </div>
         </div>
 
@@ -149,25 +153,10 @@ export default function BusPage({
               onSkip={(id) => onSet(id, s.status === 'skipped' ? 'not_picked' : 'skipped')}
               onUndo={(id) => onSet(id, 'not_picked')}
               lastUpdateIso={lastUpdateMap[s.id]}
-              forceHideTime={true}  // ensure no time for not_picked list
+              forceHideTime={true}  // never show time in this list
             />
           ))}
           {!toPickup.length && <div className="muted">No students meet today’s pickup filters</div>}
-        </div>
-
-        <div className="list" style={{ marginTop: 20 }}>
-          <div className="muted" style={{ marginBottom: 6 }}>PICKED</div>
-          {picked.map(s => (
-            <RowBus
-              key={s.id}
-              s={s}
-              onPick={() => {}}
-              onSkip={(id) => onSet(id, s.status === 'skipped' ? 'not_picked' : 'skipped')}
-              onUndo={(id) => onSet(id, 'not_picked')}
-              lastUpdateIso={lastUpdateMap[s.id]}
-            />
-          ))}
-          {!picked.length && <div className="muted">None</div>}
         </div>
       </div>
 
