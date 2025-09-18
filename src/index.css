@@ -1,0 +1,24 @@
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: #f7f7fb; }
+.container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.topbar { display:flex; gap:8px; align-items:center; justify-content: space-between; }
+.tabs { display:flex; gap:8px; flex-wrap: wrap; }
+.tab { padding:10px 14px; border-radius: 10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
+.tab.active { background:#111827; color:#fff; border-color:#111827; }
+.card { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:16px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.btn { padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
+.btn.primary { background:#111827; color:#fff; border-color:#111827; }
+.btn.small { padding:6px 10px; font-size: 14px; }
+.pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+.row.spread { justify-content: space-between; }
+.grid { display:grid; gap:12px; grid-template-columns: repeat(1, minmax(0, 1fr)); }
+@media (min-width: 900px) { .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.list { display:flex; flex-direction: column; gap:8px; }
+.item { display:flex; justify-content: space-between; align-items: center; padding:10px; border:1px solid #eef2f7; border-radius:12px; background:#fff; }
+.muted { color:#6b7280; }
+input, select { height: 40px; border-radius: 10px; border:1px solid #e5e7eb; padding: 0 10px; }
+.search { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.chip { padding:6px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; font-size: 12px;}
+.chip.active { background:#111827; color:#fff; border-color:#111827; }
