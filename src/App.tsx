@@ -21,46 +21,59 @@ export default function App(){
 
   // Auth
   useEffect(()=>{
-    supabase.auth.getSession().then(({data})=>{ setSession(data.session ?? null); setReady(true) })
+    supabase.auth.getSession().then(({data})=>{
+      setSession(data.session ?? null)
+      setReady(true)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s)=> setSession(s))
     return ()=> sub.subscription.unsubscribe()
   },[])
 
-  // Load students + roster
+  async function refreshRoster(){
+    const today = todayKey()
+    const rRes = await supabase.from('roster_status').select('*').eq('roster_date', today)
+    if (rRes.error) { setError(rRes.error.message); return }
+    const map: Record<string, Status> = {}
+    ;(rRes.data||[]).forEach((r:any)=>{ map[r.student_id] = r.current_status })
+    setRoster(map)
+  }
+
+  // Load students + ONLY initialize today's roster if it's missing
   useEffect(()=>{
     if(!session) return
     ;(async()=>{
       setLoading(true); setError(null)
       const today = todayKey()
-      const reset = await supabase.rpc('api_daily_reset', { p_date: today })
-      if (reset.error) console.warn('api_daily_reset:', reset.error.message)
 
+      // ✅ Fix #1: do NOT reset on every load; only initialize if no rows for today yet
+      const exists = await supabase
+        .from('roster_status')
+        .select('id', { count: 'exact', head: true })
+        .eq('roster_date', today)
+
+      if (!exists.error && (exists.count ?? 0) === 0) {
+        const reset = await supabase.rpc('api_daily_reset', { p_date: today })
+        if (reset.error) console.warn('api_daily_reset:', reset.error.message)
+      }
+
+      // Students
       const sRes = await supabase.from('students').select('*').eq('active', true).order('last_name')
       if (sRes.error) { setError(sRes.error.message); setLoading(false); return }
       setStudents((sRes.data||[]) as any)
 
-      const rRes = await supabase.from('roster_status').select('*').eq('roster_date', today)
-      if (rRes.error) { setError(rRes.error.message); setLoading(false); return }
-      const map: Record<string, Status> = {}
-      ;(rRes.data||[]).forEach((r:any)=>{ map[r.student_id] = r.current_status })
-      setRoster(map)
-
+      // Today's roster
+      await refreshRoster()
       setLoading(false)
     })()
   },[session])
 
-  // Realtime subscription (enable on public.roster_status in Supabase)
+  // Realtime subscription
   useEffect(()=>{
     if(!session) return
     const today = todayKey()
     const ch = supabase.channel('roster-v5')
       .on('postgres_changes', { event:'*', schema:'public', table:'roster_status', filter:`roster_date=eq.${today}` },
-        async (_payload)=>{
-          const rRes = await supabase.from('roster_status').select('*').eq('roster_date', today)
-          const map: Record<string, Status> = {}
-          ;(rRes.data||[]).forEach((r:any)=>{ map[r.student_id] = r.current_status })
-          setRoster(map)
-        })
+        async (_payload)=>{ await refreshRoster() })
       .subscribe()
     return ()=> { supabase.removeChannel(ch) }
   },[session])
@@ -93,7 +106,7 @@ export default function App(){
           <div className="pill">Roster: <b>{todayKey()}</b></div>
           <button className="btn small" onClick={async()=>{
             const { error } = await supabase.rpc('api_daily_reset', { p_date: todayKey() })
-            if(error) alert(error.message)
+            if(error) alert(error.message); else refreshRoster()
           }}>Daily Reset</button>
           <button className="btn" onClick={async()=>{ await supabase.auth.signOut() }}>Sign Out</button>
         </div>
