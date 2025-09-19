@@ -39,7 +39,6 @@ function RowBus({
   lastUpdateIso?: string
   forceHideTime?: boolean
 }) {
-  // Bus page: hide time for picked/skipped/not_picked
   const defaultHide = s.status === 'picked' || s.status === 'skipped' || s.status === 'not_picked'
   const showTime = !forceHideTime && !defaultHide
   const time = showTime ? fmtEST(lastUpdateIso) : ''
@@ -53,9 +52,7 @@ function RowBus({
       </div>
       <div className="row">
         <button className="btn small" onClick={() => onPick(s.id)} disabled={s.status !== 'not_picked'}>Picked</button>
-        {/* In 'To Pick Up', this is Skip / in 'Skipped Today', this acts as Unskip */}
         <button className="btn small" onClick={() => onSkip(s.id)}>{s.status === 'skipped' ? 'Unskip' : 'Skip'}</button>
-        {/* ❌ Undo button removed per request */}
       </div>
     </div>
   )
@@ -66,14 +63,13 @@ export default function BusPage({
 }: {
   students: StudentRow[],
   roster: Record<string, Status>,
-  onSet: (id: string, st: Status) => void
+  onSet: (id: string, st: Status, meta?: Record<string, any>) => Promise<void> | void
 }) {
   const [school, setSchool] = useState<AllowedSchool | 'All'>('All')
   const [lastUpdateMap, setLastUpdateMap] = useState<Record<string, string>>({})
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
   const [q, setQ] = useState('')
 
-  // Load timestamps for time badges
   useEffect(() => {
     (async () => {
       const { data } = await supabase
@@ -111,7 +107,6 @@ export default function BusPage({
 
   const bySchool = vm.filter(s => (school === 'All' || s.school === school) && matchesSearch(s))
 
-  // To Pick Up (only not_picked + allowed schools/programs + active)
   const toPickup = bySchool.filter(s =>
     s.status === 'not_picked'
     && s.active === true
@@ -137,12 +132,7 @@ export default function BusPage({
                 <option value="last">Last name</option>
               </select>
             </div>
-            <input
-              placeholder="Search name…"
-              value={q}
-              onChange={e=>setQ(e.target.value)}
-              style={{ marginLeft: 8, minWidth: 180 }}
-            />
+            <input placeholder="Search name…" value={q} onChange={e=>setQ(e.target.value)} style={{ marginLeft: 8, minWidth: 180 }} />
           </div>
         </div>
 
