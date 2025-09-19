@@ -1,6 +1,10 @@
+// src/pages/BusPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
-import { StudentRow, Status, SchoolName } from '../types'
 import { supabase } from '../lib/supabase'
+import type { StudentRow, Status } from '../types'
+import { todayKeyEST } from '../lib/date'
+
+type AllowedSchool = 'Bain' | 'QG' | 'MHE' | 'MC'
 
 type StudentVM = {
   id: string
@@ -13,7 +17,6 @@ type StudentVM = {
   school_year?: string | null
 }
 
-const todayKey = () => new Date().toISOString().slice(0, 10)
 const fmtEST = (iso?: string) => {
   if (!iso) return ''
   try {
@@ -22,22 +25,21 @@ const fmtEST = (iso?: string) => {
   } catch { return '' }
 }
 
-const ALLOWED_SCHOOLS: string[] = ['Bain', 'QG', 'MHE', 'MC']
+const ALLOWED_SCHOOLS: AllowedSchool[] = ['Bain', 'QG', 'MHE', 'MC']
 const BUS_ALLOWED_PROGRAMS: string[] = [
   'FT - A', 'FT - B/A', 'PT3 - A - TWR', 'PT3 - A - MWF', 'PT2 - A - WR', 'PT3 - A - TWF'
 ]
 
 function RowBus({
-  s, onPick, onSkip, onUndo, lastUpdateIso, forceHideTime
+  s, onPick, onSkip, lastUpdateIso, forceHideTime
 }: {
   s: StudentVM
   onPick: (id: string) => void
   onSkip: (id: string) => void
-  onUndo: (id: string) => void
   lastUpdateIso?: string
   forceHideTime?: boolean
 }) {
-  // Hide time for picked/skipped/not_picked on Bus
+  // Bus page: hide time for picked/skipped/not_picked
   const defaultHide = s.status === 'picked' || s.status === 'skipped' || s.status === 'not_picked'
   const showTime = !forceHideTime && !defaultHide
   const time = showTime ? fmtEST(lastUpdateIso) : ''
@@ -51,8 +53,9 @@ function RowBus({
       </div>
       <div className="row">
         <button className="btn small" onClick={() => onPick(s.id)} disabled={s.status !== 'not_picked'}>Picked</button>
+        {/* In 'To Pick Up', this is Skip / in 'Skipped Today', this acts as Unskip */}
         <button className="btn small" onClick={() => onSkip(s.id)}>{s.status === 'skipped' ? 'Unskip' : 'Skip'}</button>
-        <button className="btn small" onClick={() => onUndo(s.id)}>Undo</button>
+        {/* ❌ Undo button removed per request */}
       </div>
     </div>
   )
@@ -65,7 +68,7 @@ export default function BusPage({
   roster: Record<string, Status>,
   onSet: (id: string, st: Status) => void
 }) {
-  const [school, setSchool] = useState<SchoolName | 'All'>('All')
+  const [school, setSchool] = useState<AllowedSchool | 'All'>('All')
   const [lastUpdateMap, setLastUpdateMap] = useState<Record<string, string>>({})
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
   const [q, setQ] = useState('')
@@ -76,7 +79,7 @@ export default function BusPage({
       const { data } = await supabase
         .from('roster_status')
         .select('student_id,last_update')
-        .eq('roster_date', todayKey())
+        .eq('roster_date', todayKeyEST())
       const m: Record<string, string> = {}
       ;(data || []).forEach((r: any) => { m[r.student_id] = r.last_update })
       setLastUpdateMap(m)
@@ -112,7 +115,7 @@ export default function BusPage({
   const toPickup = bySchool.filter(s =>
     s.status === 'not_picked'
     && s.active === true
-    && ALLOWED_SCHOOLS.includes(s.school)
+    && ALLOWED_SCHOOLS.includes(s.school as AllowedSchool)
     && (s.school_year ? BUS_ALLOWED_PROGRAMS.includes(s.school_year) : false)
   ).sort(sortFn)
 
@@ -151,9 +154,8 @@ export default function BusPage({
               s={s}
               onPick={(id) => onSet(id, 'picked')}
               onSkip={(id) => onSet(id, s.status === 'skipped' ? 'not_picked' : 'skipped')}
-              onUndo={(id) => onSet(id, 'not_picked')}
               lastUpdateIso={lastUpdateMap[s.id]}
-              forceHideTime={true}  // never show time in this list
+              forceHideTime={true}
             />
           ))}
           {!toPickup.length && <div className="muted">No students meet today’s pickup filters</div>}
@@ -169,7 +171,6 @@ export default function BusPage({
               s={s}
               onPick={(id) => onSet(id, 'picked')}
               onSkip={(id) => onSet(id, 'not_picked')}
-              onUndo={(id) => onSet(id, 'not_picked')}
               lastUpdateIso={lastUpdateMap[s.id]}
             />
           ))}

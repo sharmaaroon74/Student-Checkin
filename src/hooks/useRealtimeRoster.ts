@@ -1,32 +1,36 @@
+// src/hooks/useRealtimeRoster.ts
 import { useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { todayKeyEST } from '../lib/date'
 
 /**
- * Subscribes to realtime Postgres changes for today's roster rows (EST).
- * Merges INSERT/UPDATE/DELETE into your local roster map.
+ * Realtime subscription:
+ * - No server-side filter (avoid Realtime filter quirks).
+ * - Client-side: ignore rows not for today's EST date.
+ * - On connect/reconnect: trigger a lightweight refetch to ensure consistency.
  */
 export function useRealtimeRoster(
-  setRoster: React.Dispatch<React.SetStateAction<Record<string, any>>>
+  setRoster: React.Dispatch<React.SetStateAction<Record<string, any>>>,
+  refetchTodayRoster: () => Promise<void>
 ) {
   useEffect(() => {
-    const today = todayKeyEST()
+    let isMounted = true
+    const todayEST = todayKeyEST()
 
     const channel = supabase
-      .channel('roster-status-realtime')
+      .channel('roster-status-realtime', {
+        config: { broadcast: { ack: true }, presence: { key: 'roster' } },
+      })
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'roster_status',
-          filter: `roster_date=eq.${today}`, // EST day
-        },
+        { event: '*', schema: 'public', table: 'roster_status' },
         (payload) => {
           const row: any = payload.new ?? payload.old
           if (!row) return
-          const { student_id, current_status } = row
+          // Ignore events for other days
+          if (row.roster_date !== todayEST) return
 
+          const { student_id, current_status } = row
           setRoster((prev) => {
             const next = { ...prev }
             if (payload.eventType === 'DELETE') {
@@ -38,10 +42,17 @@ export function useRealtimeRoster(
           })
         }
       )
-      .subscribe()
+      .subscribe(async (status) => {
+        // On joined/subscribed or rejoined, refetch today's roster once
+        if (!isMounted) return
+        if (status === 'SUBSCRIBED') {
+          try { await refetchTodayRoster() } catch { /* ignore */ }
+        }
+      })
 
     return () => {
+      isMounted = false
       supabase.removeChannel(channel)
     }
-  }, [setRoster])
+  }, [setRoster, refetchTodayRoster])
 }
