@@ -174,26 +174,13 @@ export default function App() {
   // Manual daily reset (EST)
   // ---------------------------
   async function resetToday() {
-    if (!confirm('Reset all statuses for today (EST) to "not_picked"?')) return
-    const today = todayKeyEST()
-    const { data, error } = await supabase
-      .from('roster_status')
-      .select('student_id,current_status')
-      .eq('roster_date', today)
-    if (error) { alert(error.message); return }
+  if (!confirm('Reset today (EST) with no-bus auto-skip applied?')) return
+  const { error } = await supabase.rpc('api_reset_today_apply_nobus')
+  if (error) { alert(error.message); return }
+  await fetchTodayRoster() // refresh UI
+  alert('Reset complete for today (EST). No-bus auto-skip applied.')
+}
 
-    for (const r of (data || [])) {
-      await supabase.rpc('api_set_status', {
-        p_student_id: r.student_id,
-        p_roster_date: today,
-        p_new_status: 'not_picked',
-        p_pickup_person: null,
-        p_meta: { source: 'ui', reset: true, prev_status: r.current_status }
-      })
-    }
-    await fetchTodayRoster()
-    alert('Reset complete for today (EST).')
-  }
 
   async function logout() {
     await supabase.auth.signOut()
