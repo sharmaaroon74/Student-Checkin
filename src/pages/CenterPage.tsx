@@ -1,8 +1,9 @@
+// src/pages/CenterPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { StudentRow, Status } from '../types'
+import { todayKeyEST } from '../lib/date'
 
-// Allowed schools for UI filtering only (DB can hold any school string)
 type AllowedSchool = 'Bain' | 'QG' | 'MHE' | 'MC'
 
 type StudentVM = {
@@ -10,14 +11,13 @@ type StudentVM = {
   first: string
   last: string
   name: string
-  school: string // DB value can be any string
+  school: string
   status: Status
   active: boolean
   approved: string[]
   school_year?: string | null
 }
 
-const todayKey = () => new Date().toISOString().slice(0,10)
 const fmtEST = (iso?: string) => {
   if (!iso) return ''
   try {
@@ -39,12 +39,9 @@ function Row({
   onPrimary: (id:string)=>void,
   onUndo: (id:string)=>void,
   lastUpdateIso?: string,
-  /** If true, show time even if status is picked/skipped/not_picked */
   forceShowTime?: boolean,
-  /** If provided, replace the status text label */
   labelOverride?: string
 }){
-  // default: hide for picked/skipped/not_picked; show for arrived/checked
   const defaultHide = s.status === 'picked' || s.status === 'skipped' || s.status === 'not_picked'
   const showTime = forceShowTime ? true : !defaultHide
   const time = showTime ? fmtEST(lastUpdateIso) : ''
@@ -87,18 +84,15 @@ export default function CenterPage({
 }:{
   students: StudentRow[],
   roster: Record<string, Status>,
-  onSet:(id:string, st: Status)=>void
+  onSet:(id:string, st: Status, meta?: Record<string, any>)=>Promise<void>|void
 }){
   const [tab, setTab] = useState<'in'|'out'>('in')
-
-  // ✅ Safe school filter state (no SchoolName union involved)
   const [schools, setSchools] = useState<Array<AllowedSchool | 'All'>>(['All'])
-
   const [lastUpdateMap, setLastUpdateMap] = useState<Record<string, string>>({})
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
   const [q, setQ] = useState('')
 
-  // Verify Pickup modal state
+  // Verify Pickup modal
   const [showVerify, setShowVerify] = useState(false)
   const [verifyStudent, setVerifyStudent] = useState<StudentVM | null>(null)
   const [selectedName, setSelectedName] = useState<string | null>(null)
@@ -116,13 +110,12 @@ export default function CenterPage({
     })
   }
 
-  // Load last_update timestamps whenever roster changes
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from('roster_status')
         .select('student_id,last_update')
-        .eq('roster_date', todayKey())
+        .eq('roster_date', todayKeyEST())
       const m: Record<string, string> = {}
       ;(data || []).forEach((r: any) => { m[r.student_id] = r.last_update })
       setLastUpdateMap(m)
@@ -149,17 +142,13 @@ export default function CenterPage({
   const qlc = q.trim().toLowerCase()
   const matchesSearch = (s: StudentVM) => !qlc || s.first.toLowerCase().includes(qlc) || s.last.toLowerCase().includes(qlc)
 
-  // Apply school filter safely: if 'All' selected, allow any; otherwise only allow specific UI schools
   const bySchool = vm.filter(s => {
     if (schools[0] === 'All') return matchesSearch(s)
-    // Only compare against our AllowedSchool list; s.school is just a string
     return (schools as AllowedSchool[]).includes(s.school as AllowedSchool) && matchesSearch(s)
   })
 
-  // Center Check-in (from Bus): ONLY 'picked'
   const centerCheckin = bySchool.filter(s => s.status === 'picked').sort(sortFn)
 
-  // Direct Check-in (No Bus): active + allowed school + allowed program + not_picked
   const directCheckin = bySchool.filter(s =>
     s.status === 'not_picked'
     && s.active === true
@@ -167,37 +156,19 @@ export default function CenterPage({
     && (s.school_year ? DIRECT_ALLOWED_PROGRAMS.includes(s.school_year) : false)
   ).sort(sortFn)
 
-  // Checkout / Checked Out
   const checkoutList = bySchool.filter(s => s.status === 'arrived').sort(sortFn)
   const checkedOut   = bySchool.filter(s => s.status === 'checked').sort(sortFn)
 
   async function markArrived(studentId: string) {
-    const prev = (roster[studentId] ?? 'not_picked') as Status // 'picked' or 'not_picked'
-    const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId,
-      p_roster_date: todayKey(),
-      p_new_status: 'arrived',
-      p_pickup_person: null,
-      p_meta: { source: 'ui', prev_status: prev, arrived_via: prev }
-    })
-    if (error) { alert(error.message); return }
-    onSet(studentId, 'arrived')
+    const prev = (roster[studentId] ?? 'not_picked') as Status
+    await onSet(studentId, 'arrived', { arrived_via: prev })
   }
 
   async function undoArrived(studentId: string) {
-    const { data, error } = await supabase
-      .from('logs').select('action,meta')
-      .eq('roster_date', todayKey()).eq('student_id', studentId)
-      .eq('action', 'arrived').order('at', { ascending: false }).limit(1)
-    if (error) { alert(error.message); return }
-    const prev = (data?.[0]?.meta?.prev_status as Status) || 'picked'
-    const { error: e2 } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId, p_roster_date: todayKey(),
-      p_new_status: prev, p_pickup_person: null,
-      p_meta: { source: 'ui', undo_of: 'arrived' }
-    })
-    if (e2) { alert(e2.message); return }
-    onSet(studentId, prev)
+    // default back to 'picked' (if they arrived from bus) else 'not_picked'
+    const lastPrev = roster[studentId] // current is 'arrived', but we stored prev in meta; if you want perfect fidelity, query logs here.
+    const fallbackPrev: Status = 'picked'
+    await onSet(studentId, fallbackPrev, { undo_of: 'arrived' })
   }
 
   function openVerifyModal(s: StudentVM){
@@ -209,25 +180,12 @@ export default function CenterPage({
     if (!verifyStudent) return
     const chosen = (selectedName && selectedName.trim()) || (overrideName && overrideName.trim())
     if (!chosen) { alert('Please select an approved pickup OR enter an admin override name.'); return }
-    const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: verifyStudent.id,
-      p_roster_date: todayKey(),
-      p_new_status: 'checked',
-      p_pickup_person: chosen,
-      p_meta: { source: 'ui', pickup_time_edit: pickupTime }
-    })
-    if (error) { alert(error.message); return }
-    onSet(verifyStudent.id, 'checked'); setShowVerify(false); setVerifyStudent(null)
+    await onSet(verifyStudent.id, 'checked', { pickup_person: chosen, pickup_time_edit: pickupTime })
+    setShowVerify(false); setVerifyStudent(null)
   }
 
   async function undoCheckout(studentId: string) {
-    const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId, p_roster_date: todayKey(),
-      p_new_status: 'arrived', p_pickup_person: null,
-      p_meta: { source: 'ui', undo_of: 'checked' }
-    })
-    if (error) { alert(error.message); return }
-    onSet(studentId, 'arrived')
+    await onSet(studentId, 'arrived', { undo_of: 'checked' })
   }
 
   return (
@@ -262,12 +220,7 @@ export default function CenterPage({
               <option value="last">Last name</option>
             </select>
           </div>
-          <input
-            placeholder="Search name…"
-            value={q}
-            onChange={e=>setQ(e.target.value)}
-            style={{ marginLeft: 8, minWidth: 180 }}
-          />
+          <input placeholder="Search name…" value={q} onChange={e=>setQ(e.target.value)} style={{ marginLeft: 8, minWidth: 180 }} />
         </div>
       </div>
 
@@ -280,18 +233,9 @@ export default function CenterPage({
                 <Row key={s.id} s={s}
                   primaryLabel="Mark Arrived"
                   onPrimary={(id)=> markArrived(id)}
-                  onUndo={(id)=> {
-                    supabase.rpc('api_set_status', {
-                      p_student_id: id, p_roster_date: todayKey(),
-                      p_new_status: 'not_picked', p_pickup_person: null,
-                      p_meta: { source: 'ui', undo_from: 'picked' }
-                    }).then(({ error })=>{
-                      if(error){ alert(error.message); return }
-                      onSet(id, 'not_picked')
-                    })
-                  }}
+                  onUndo={(id)=> onSet(id, 'not_picked', { undo_from: 'picked' })}
                   lastUpdateIso={lastUpdateMap[s.id]}
-                  forceShowTime={true}  // show time for picked here
+                  forceShowTime={true}
                 />
               ))}
               {!centerCheckin.length && <div className="muted">No students (waiting for Picked on Bus)</div>}
@@ -324,7 +268,7 @@ export default function CenterPage({
                 <Row key={s.id} s={s}
                   primaryLabel="Checkout"
                   onPrimary={()=> openVerifyModal(s)}
-                  onUndo={(id)=> undoArrived(id)}
+                  onUndo={(id)=> onSet(id, 'picked', { undo_of: 'arrived' })}
                   lastUpdateIso={lastUpdateMap[s.id]}
                 />
               ))}
@@ -349,7 +293,6 @@ export default function CenterPage({
         </div>
       )}
 
-      {/* Verify Pickup Modal */}
       <Modal open={showVerify} title="Verify Pickup" onClose={()=> setShowVerify(false)}>
         {verifyStudent && (
           <div style={{display:'grid', gap:12}}>

@@ -1,6 +1,10 @@
+// src/pages/SkipPage.tsx
 import React, { useMemo, useState } from 'react'
-import { StudentRow, Status, SchoolName } from '../types'
 import { supabase } from '../lib/supabase'
+import type { StudentRow, Status } from '../types'
+import { todayKeyEST } from '../lib/date'
+
+type AllowedSchool = 'Bain' | 'QG' | 'MHE' | 'MC'
 
 type StudentVM = {
   id: string
@@ -11,17 +15,15 @@ type StudentVM = {
   status: Status
 }
 
-const todayKey = () => new Date().toISOString().slice(0,10)
-
 export default function SkipPage({
   students, roster, onSet
 }:{ 
   students: StudentRow[], 
   roster: Record<string, Status>, 
-  onSet:(id:string, st: Status)=>void 
+  onSet:(id:string, st: Status, meta?: Record<string,any>)=>Promise<void>|void 
 }){
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
-  const [school, setSchool] = useState<SchoolName | 'All'>('All')
+  const [school, setSchool] = useState<AllowedSchool | 'All'>('All')
   const [q, setQ] = useState('')
 
   const vm = useMemo<StudentVM[]>(()=> students.map(s=>({
@@ -48,37 +50,22 @@ export default function SkipPage({
 
   async function skipToday(studentId: string) {
     const prev = (roster[studentId] ?? 'not_picked') as Status
-    const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId,
-      p_roster_date: todayKey(),
-      p_new_status: 'skipped',
-      p_pickup_person: null,
-      p_meta: { source: 'ui', prev_status: prev }
-    })
-    if (error){ alert(error.message); return }
-    onSet(studentId, 'skipped')
+    await onSet(studentId, 'skipped', { prev_status: prev })
   }
 
   async function unskipToday(studentId: string) {
+    // Look up last "skipped" log to find prev_status; fallback to not_picked
     const { data, error } = await supabase
       .from('logs')
-      .select('action, meta')
-      .eq('roster_date', todayKey())
+      .select('meta')
+      .eq('roster_date', todayKeyEST())
       .eq('student_id', studentId)
       .eq('action', 'skipped')
       .order('at', { ascending: false })
       .limit(1)
-    if (error){ alert(error.message); return }
     const prev = (data?.[0]?.meta?.prev_status as Status) || 'not_picked'
-    const { error: e2 } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId,
-      p_roster_date: todayKey(),
-      p_new_status: prev,
-      p_pickup_person: null,
-      p_meta: { source: 'ui', undo_of: 'skipped' }
-    })
-    if (e2){ alert(e2.message); return }
-    onSet(studentId, prev)
+    if (error) console.error(error)
+    await onSet(studentId, prev, { undo_of: 'skipped' })
   }
 
   return (
@@ -97,12 +84,7 @@ export default function SkipPage({
                 <option value="last">Last name</option>
               </select>
             </div>
-            <input
-              placeholder="Search name…"
-              value={q}
-              onChange={e=>setQ(e.target.value)}
-              style={{ marginLeft: 8, minWidth: 180 }}
-            />
+            <input placeholder="Search name…" value={q} onChange={e=>setQ(e.target.value)} style={{ marginLeft: 8, minWidth: 180 }} />
           </div>
         </div>
         <div className="list" style={{marginTop:12}}>
@@ -114,7 +96,6 @@ export default function SkipPage({
               </div>
               <div className="row">
                 <button className="btn small" onClick={()=>skipToday(s.id)}>Skip Today</button>
-                <button className="btn small" onClick={()=>onSet(s.id, s.status)}>Undo</button>
               </div>
             </div>
           ))}
@@ -136,12 +117,7 @@ export default function SkipPage({
                 <option value="last">Last name</option>
               </select>
             </div>
-            <input
-              placeholder="Search name…"
-              value={q}
-              onChange={e=>setQ(e.target.value)}
-              style={{ marginLeft: 8, minWidth: 180 }}
-            />
+            <input placeholder="Search name…" value={q} onChange={e=>setQ(e.target.value)} style={{ marginLeft: 8, minWidth: 180 }} />
           </div>
         </div>
         <div className="list" style={{marginTop:12}}>

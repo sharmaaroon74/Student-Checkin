@@ -45,9 +45,7 @@ export default function App() {
   const [sessionReady, setSessionReady] = useState(false)
   const [hasSession, setHasSession] = useState(false)
 
-  // ——————————————————————————————————————————
-  // Loaders
-  // ——————————————————————————————————————————
+  // Fetchers
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
@@ -64,7 +62,7 @@ export default function App() {
       .eq('roster_date', todayKeyEST())
     if (error) throw error
     const map: Record<string, Status> = {}
-    ;(data || []).forEach((r: any) => { map[r.student_id] = r.current_status as Status })
+    ;(data || []).forEach((r: any) => (map[r.student_id] = r.current_status as Status))
     setRoster(map)
   }, [])
 
@@ -79,9 +77,7 @@ export default function App() {
     }
   }, [fetchStudents, fetchTodayRoster])
 
-  // ——————————————————————————————————————————
-  // Auth
-  // ——————————————————————————————————————————
+  // Auth gate
   useEffect(() => {
     let mounted = true
     supabase.auth.getSession().then(({ data }) => {
@@ -91,11 +87,8 @@ export default function App() {
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
       setHasSession(!!sess)
-      if (sess) {
-        // after login, load data; DO NOT clear roster here
-        loadAll()
-      } else {
-        // after logout, clear local UI
+      if (sess) loadAll()
+      else {
         setStudents([])
         setRoster({})
       }
@@ -103,24 +96,40 @@ export default function App() {
     return () => { mounted = false; sub.subscription.unsubscribe() }
   }, [loadAll])
 
-  // Initial load after session known (no reset)
   useEffect(() => {
-    if (sessionReady && hasSession) {
-      loadAll()
-    } else if (sessionReady && !hasSession) {
-      setLoading(false)
-    }
+    if (sessionReady && hasSession) loadAll()
+    else if (sessionReady && !hasSession) setLoading(false)
   }, [sessionReady, hasSession, loadAll])
 
-  // ——————————————————————————————————————————
-  // Realtime (no server filter; client ignores non-EST-today)
-  // ——————————————————————————————————————————
+  // Realtime (no server filter; client filters by EST)
   useRealtimeRoster(setRoster, fetchTodayRoster)
 
-  // Optimistic local setter (pages perform RPCs)
-  const onSet = (id: string, st: Status) => {
-    setRoster(prev => ({ ...prev, [id]: st }))
-  }
+  // 🔴 SINGLE SOURCE OF TRUTH FOR STATUS CHANGES
+  // Always call the RPC, then update local state.
+  const setStatusPersist = useCallback(
+    async (
+      id: string,
+      newStatus: Status,
+      meta?: { pickup_person?: string | null; [k: string]: any }
+    ) => {
+      const today = todayKeyEST()
+      const prev = roster[id] ?? 'not_picked'
+      const { error } = await supabase.rpc('api_set_status', {
+        p_student_id: id,
+        p_roster_date: today,
+        p_new_status: newStatus,
+        p_pickup_person: meta?.pickup_person ?? null,
+        p_meta: { source: 'ui', prev_status: prev, ...meta }
+      })
+      if (error) {
+        alert(error.message)
+        return
+      }
+      // optimistic update; realtime will also confirm
+      setRoster((prevMap) => ({ ...prevMap, [id]: newStatus }))
+    },
+    [roster]
+  )
 
   // Manual daily reset only (no auto reset on refresh/login)
   async function resetToday() {
@@ -131,7 +140,6 @@ export default function App() {
       .select('student_id,current_status')
       .eq('roster_date', today)
     if (error) { alert(error.message); return }
-
     for (const r of (data || [])) {
       await supabase.rpc('api_set_status', {
         p_student_id: r.student_id,
@@ -141,7 +149,7 @@ export default function App() {
         p_meta: { source: 'ui', reset: true, prev_status: r.current_status }
       })
     }
-    await fetchTodayRoster() // reflect in UI
+    await fetchTodayRoster()
     alert('Reset complete for today (EST).')
   }
 
@@ -178,9 +186,7 @@ export default function App() {
       </div>
     )
   }
-
   if (!hasSession) return <Login />
-
   if (loading) {
     return (
       <div className="container">
@@ -194,13 +200,13 @@ export default function App() {
     <div className="container">
       {Nav}
       {page === 'bus' && (
-        <BusPage students={students} roster={roster} onSet={onSet} />
+        <BusPage students={students} roster={roster} onSet={setStatusPersist} />
       )}
       {page === 'center' && (
-        <CenterPage students={students} roster={roster} onSet={onSet} />
+        <CenterPage students={students} roster={roster} onSet={setStatusPersist} />
       )}
       {page === 'skip' && (
-        <SkipPage students={students} roster={roster} onSet={onSet} />
+        <SkipPage students={students} roster={roster} onSet={setStatusPersist} />
       )}
     </div>
   )
