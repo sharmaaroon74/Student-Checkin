@@ -1,22 +1,24 @@
 // src/hooks/useRealtimeRoster.ts
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { todayKeyEST } from '../lib/date'
 
 /**
- * Realtime subscription:
- * - No server-side filter (avoid Realtime filter quirks).
- * - Client-side: ignore rows not for today's EST date.
- * - On connect/reconnect: trigger a lightweight refetch to ensure consistency.
+ * Realtime + fallback polling (visible-tab only).
+ * - Subscribe to ALL changes on public.roster_status and ignore non-EST-today rows client-side.
+ * - Log subscription status and payloads for quick diagnostics.
+ * - On (re)subscribe and every 5s while the tab is visible, do a light refetch (cheap).
  */
 export function useRealtimeRoster(
   setRoster: React.Dispatch<React.SetStateAction<Record<string, any>>>,
   refetchTodayRoster: () => Promise<void>
 ) {
-  useEffect(() => {
-    let isMounted = true
-    const todayEST = todayKeyEST()
+  const pollTimer = useRef<number | null>(null)
 
+  useEffect(() => {
+    const today = todayKeyEST()
+
+    // --- Realtime subscription
     const channel = supabase
       .channel('roster-status-realtime', {
         config: { broadcast: { ack: true }, presence: { key: 'roster' } },
@@ -27,8 +29,10 @@ export function useRealtimeRoster(
         (payload) => {
           const row: any = payload.new ?? payload.old
           if (!row) return
-          // Ignore events for other days
-          if (row.roster_date !== todayEST) return
+          if (row.roster_date !== today) return // ignore other days
+
+          // Uncomment during diagnostics (then re-deploy once stable)
+          // console.log('[RT]', payload.eventType, row.student_id, row.current_status)
 
           const { student_id, current_status } = row
           setRoster((prev) => {
@@ -43,16 +47,40 @@ export function useRealtimeRoster(
         }
       )
       .subscribe(async (status) => {
-        // On joined/subscribed or rejoined, refetch today's roster once
-        if (!isMounted) return
+        // console.log('[RT] status:', status)
         if (status === 'SUBSCRIBED') {
-          try { await refetchTodayRoster() } catch { /* ignore */ }
+          try { await refetchTodayRoster() } catch {}
         }
       })
 
+    // --- Visible-tab polling fallback (every 5s)
+    const startPolling = () => {
+      if (pollTimer.current) return
+      pollTimer.current = window.setInterval(async () => {
+        if (document.visibilityState === 'visible') {
+          try { await refetchTodayRoster() } catch {}
+        }
+      }, 5000)
+    }
+    const stopPolling = () => {
+      if (pollTimer.current) {
+        clearInterval(pollTimer.current)
+        pollTimer.current = null
+      }
+    }
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible') startPolling()
+      else stopPolling()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    // start immediately if visible
+    if (document.visibilityState === 'visible') startPolling()
+
     return () => {
-      isMounted = false
       supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', onVis)
+      stopPolling()
     }
   }, [setRoster, refetchTodayRoster])
 }
