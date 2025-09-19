@@ -45,7 +45,9 @@ export default function App() {
   const [sessionReady, setSessionReady] = useState(false)
   const [hasSession, setHasSession] = useState(false)
 
+  // ---------------------------
   // Fetchers
+  // ---------------------------
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
@@ -56,11 +58,30 @@ export default function App() {
   }, [])
 
   const fetchTodayRoster = useCallback(async () => {
-    const { data, error } = await supabase
+    const today = todayKeyEST()
+
+    // 1) Load today's roster (with count)
+    let { data, error, count } = await supabase
       .from('roster_status')
-      .select('student_id,current_status')
-      .eq('roster_date', todayKeyEST())
+      .select('student_id,current_status', { count: 'exact' })
+      .eq('roster_date', today)
+
     if (error) throw error
+
+    // 2) If empty, seed once, then refetch
+    if ((count ?? (data?.length ?? 0)) === 0) {
+      const { error: seedErr } = await supabase.rpc('api_seed_today_if_empty')
+      if (!seedErr) {
+        const retry = await supabase
+          .from('roster_status')
+          .select('student_id,current_status')
+          .eq('roster_date', today)
+        data = retry.data
+      } else {
+        console.error('Seed error:', seedErr.message)
+      }
+    }
+
     const map: Record<string, Status> = {}
     ;(data || []).forEach((r: any) => (map[r.student_id] = r.current_status as Status))
     setRoster(map)
@@ -77,7 +98,9 @@ export default function App() {
     }
   }, [fetchStudents, fetchTodayRoster])
 
+  // ---------------------------
   // Auth gate
+  // ---------------------------
   useEffect(() => {
     let mounted = true
     supabase.auth.getSession().then(({ data }) => {
@@ -101,11 +124,15 @@ export default function App() {
     else if (sessionReady && !hasSession) setLoading(false)
   }, [sessionReady, hasSession, loadAll])
 
-  // Realtime (no server filter; client filters by EST)
+  // ---------------------------
+  // Realtime (no server-side filter; client filters by EST)
+  // ---------------------------
   useRealtimeRoster(setRoster, fetchTodayRoster)
 
-  // 🔴 SINGLE SOURCE OF TRUTH FOR STATUS CHANGES
-  // Always call the RPC, then update local state.
+  // ---------------------------
+  // Single source of truth for status changes
+  // Always persist via RPC, then update local state optimistically.
+  // ---------------------------
   const setStatusPersist = useCallback(
     async (
       id: string,
@@ -125,13 +152,15 @@ export default function App() {
         alert(error.message)
         return
       }
-      // optimistic update; realtime will also confirm
+      // Optimistic update; Realtime will also confirm
       setRoster((prevMap) => ({ ...prevMap, [id]: newStatus }))
     },
     [roster]
   )
 
-  // Manual daily reset only (no auto reset on refresh/login)
+  // ---------------------------
+  // Manual daily reset (EST) — no auto reset on refresh/login
+  // ---------------------------
   async function resetToday() {
     if (!confirm('Reset all statuses for today (EST) to "not_picked"?')) return
     const today = todayKeyEST()
@@ -140,6 +169,7 @@ export default function App() {
       .select('student_id,current_status')
       .eq('roster_date', today)
     if (error) { alert(error.message); return }
+
     for (const r of (data || [])) {
       await supabase.rpc('api_set_status', {
         p_student_id: r.student_id,
