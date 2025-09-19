@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { StudentRow, Status, SchoolName } from '../types'
 import { supabase } from '../lib/supabase'
+import type { StudentRow, Status } from '../types'
+
+// Allowed schools for UI filtering only (DB can hold any school string)
+type AllowedSchool = 'Bain' | 'QG' | 'MHE' | 'MC'
 
 type StudentVM = {
   id: string
   first: string
   last: string
   name: string
-  school: string
+  school: string // DB value can be any string
   status: Status
   active: boolean
   approved: string[]
@@ -22,7 +25,8 @@ const fmtEST = (iso?: string) => {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' }) + ' EST'
   } catch { return '' }
 }
-const ALLOWED_SCHOOLS: string[] = ['Bain', 'QG', 'MHE', 'MC']
+
+const ALLOWED_SCHOOLS: AllowedSchool[] = ['Bain', 'QG', 'MHE', 'MC']
 const DIRECT_ALLOWED_PROGRAMS: string[] = [
   'B','H','FT - A','FT - B/A','PT3 - A - TWR','PT3 - A - MWF','PT2 - A - WR','PT3 - A - TWF'
 ]
@@ -35,9 +39,12 @@ function Row({
   onPrimary: (id:string)=>void,
   onUndo: (id:string)=>void,
   lastUpdateIso?: string,
+  /** If true, show time even if status is picked/skipped/not_picked */
   forceShowTime?: boolean,
+  /** If provided, replace the status text label */
   labelOverride?: string
 }){
+  // default: hide for picked/skipped/not_picked; show for arrived/checked
   const defaultHide = s.status === 'picked' || s.status === 'skipped' || s.status === 'not_picked'
   const showTime = forceShowTime ? true : !defaultHide
   const time = showTime ? fmtEST(lastUpdateIso) : ''
@@ -83,30 +90,33 @@ export default function CenterPage({
   onSet:(id:string, st: Status)=>void
 }){
   const [tab, setTab] = useState<'in'|'out'>('in')
-  const [schools, setSchools] = useState<SchoolName[]|['All']>(['All'])
+
+  // ✅ Safe school filter state (no SchoolName union involved)
+  const [schools, setSchools] = useState<Array<AllowedSchool | 'All'>>(['All'])
+
   const [lastUpdateMap, setLastUpdateMap] = useState<Record<string, string>>({})
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
   const [q, setQ] = useState('')
 
-  // Verify Pickup modal
+  // Verify Pickup modal state
   const [showVerify, setShowVerify] = useState(false)
   const [verifyStudent, setVerifyStudent] = useState<StudentVM | null>(null)
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [overrideName, setOverrideName] = useState<string>('')
   const [pickupTime, setPickupTime] = useState<string>('')
 
-  const toggleSchool = (sc: SchoolName) => {
+  const toggleSchool = (sc: AllowedSchool) => {
     setSchools(prev => {
-      if (prev[0]==='All') return [sc]
+      if (prev[0] === 'All') return [sc]
       if (prev.includes(sc)) {
-        const next = prev.filter(x=>x!==sc) as SchoolName[]
-        return next.length? next : ['All']
+        const next = prev.filter(x => x !== sc) as AllowedSchool[]
+        return next.length ? next : ['All']
       }
-      return [...prev as SchoolName[], sc]
+      return [...(prev as AllowedSchool[]), sc]
     })
   }
 
-  // Load last_update timestamps
+  // Load last_update timestamps whenever roster changes
   useEffect(() => {
     (async () => {
       const { data } = await supabase
@@ -139,9 +149,12 @@ export default function CenterPage({
   const qlc = q.trim().toLowerCase()
   const matchesSearch = (s: StudentVM) => !qlc || s.first.toLowerCase().includes(qlc) || s.last.toLowerCase().includes(qlc)
 
-  const bySchool = vm.filter(s =>
-    ((schools[0]==='All') || (schools as SchoolName[]).includes(s.school as any)) && matchesSearch(s)
-  )
+  // Apply school filter safely: if 'All' selected, allow any; otherwise only allow specific UI schools
+  const bySchool = vm.filter(s => {
+    if (schools[0] === 'All') return matchesSearch(s)
+    // Only compare against our AllowedSchool list; s.school is just a string
+    return (schools as AllowedSchool[]).includes(s.school as AllowedSchool) && matchesSearch(s)
+  })
 
   // Center Check-in (from Bus): ONLY 'picked'
   const centerCheckin = bySchool.filter(s => s.status === 'picked').sort(sortFn)
@@ -150,7 +163,7 @@ export default function CenterPage({
   const directCheckin = bySchool.filter(s =>
     s.status === 'not_picked'
     && s.active === true
-    && ALLOWED_SCHOOLS.includes(s.school)
+    && ALLOWED_SCHOOLS.includes(s.school as AllowedSchool)
     && (s.school_year ? DIRECT_ALLOWED_PROGRAMS.includes(s.school_year) : false)
   ).sort(sortFn)
 
@@ -159,10 +172,12 @@ export default function CenterPage({
   const checkedOut   = bySchool.filter(s => s.status === 'checked').sort(sortFn)
 
   async function markArrived(studentId: string) {
-    const prev = (roster[studentId] ?? 'not_picked') as Status
+    const prev = (roster[studentId] ?? 'not_picked') as Status // 'picked' or 'not_picked'
     const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId, p_roster_date: todayKey(),
-      p_new_status: 'arrived', p_pickup_person: null,
+      p_student_id: studentId,
+      p_roster_date: todayKey(),
+      p_new_status: 'arrived',
+      p_pickup_person: null,
       p_meta: { source: 'ui', prev_status: prev, arrived_via: prev }
     })
     if (error) { alert(error.message); return }
@@ -195,8 +210,10 @@ export default function CenterPage({
     const chosen = (selectedName && selectedName.trim()) || (overrideName && overrideName.trim())
     if (!chosen) { alert('Please select an approved pickup OR enter an admin override name.'); return }
     const { error } = await supabase.rpc('api_set_status', {
-      p_student_id: verifyStudent.id, p_roster_date: todayKey(),
-      p_new_status: 'checked', p_pickup_person: chosen,
+      p_student_id: verifyStudent.id,
+      p_roster_date: todayKey(),
+      p_new_status: 'checked',
+      p_pickup_person: chosen,
       p_meta: { source: 'ui', pickup_time_edit: pickupTime }
     })
     if (error) { alert(error.message); return }
@@ -222,8 +239,21 @@ export default function CenterPage({
         </div>
         <div className="row">
           {(['All','Bain','QG','MHE','MC'] as const).map(sc=>{
-            const active = (schools[0]==='All' && sc==='All') || (schools[0]!=='All' && (schools as SchoolName[]).includes(sc as any))
-            return <button key={sc} className={'chip ' + (active?'active':'')} onClick={()=> sc==='All'? setSchools(['All']): toggleSchool(sc as any)}>{sc}</button>
+            const active =
+              (schools[0]==='All' && sc==='All') ||
+              (schools[0]!=='All' && (schools as (AllowedSchool|'All')[]).includes(sc))
+            return (
+              <button
+                key={sc}
+                className={'chip ' + (active?'active':'')}
+                onClick={()=>{
+                  if (sc === 'All') setSchools(['All'])
+                  else toggleSchool(sc)
+                }}
+              >
+                {sc}
+              </button>
+            )
           })}
           <div className="row" style={{ marginLeft: 8 }}>
             <span className="muted" style={{ marginRight: 6 }}>Sort</span>
