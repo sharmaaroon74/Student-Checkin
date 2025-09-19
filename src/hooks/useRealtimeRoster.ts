@@ -1,19 +1,27 @@
 import { useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { todayKeyEST } from '../lib/date'
 
-const todayKey = () => new Date().toISOString().slice(0, 10)
-
+/**
+ * Subscribes to realtime Postgres changes for today's roster rows (EST).
+ * Merges INSERT/UPDATE/DELETE into your local roster map.
+ */
 export function useRealtimeRoster(
   setRoster: React.Dispatch<React.SetStateAction<Record<string, any>>>
 ) {
   useEffect(() => {
-    const today = todayKey()
+    const today = todayKeyEST()
 
     const channel = supabase
       .channel('roster-status-realtime')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'roster_status', filter: `roster_date=eq.${today}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'roster_status',
+          filter: `roster_date=eq.${today}`, // EST day
+        },
         (payload) => {
           const row: any = payload.new ?? payload.old
           if (!row) return

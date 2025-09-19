@@ -1,69 +1,150 @@
-// src/App.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabase'
 import BusPage from './pages/BusPage'
 import CenterPage from './pages/CenterPage'
 import SkipPage from './pages/SkipPage'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 import type { StudentRow, Status } from './types'
+import { todayKeyEST } from './lib/date'
 
-const todayKey = () => new Date().toISOString().slice(0, 10)
+type Page = 'bus' | 'center' | 'skip'
+
+function Login() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  async function signIn(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    setLoading(false)
+    if (error) alert(error.message)
+  }
+  return (
+    <div className="container">
+      <div className="card" style={{ maxWidth: 420, margin: '80px auto' }}>
+        <h2 className="heading">Sunny Days – Sign in</h2>
+        <form onSubmit={signIn} style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+          <input
+            type="email" placeholder="Email"
+            value={email} onChange={e => setEmail(e.target.value)}
+          />
+          <input
+            type="password" placeholder="Password"
+            value={password} onChange={e => setPassword(e.target.value)}
+          />
+          <button className="btn primary" disabled={loading} type="submit">
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
-  const [page, setPage] = useState<'bus' | 'center' | 'skip'>('bus')
+  const [page, setPage] = useState<Page>('bus')
   const [loading, setLoading] = useState(true)
   const [students, setStudents] = useState<StudentRow[]>([])
   const [roster, setRoster] = useState<Record<string, Status>>({})
+  const [sessionReady, setSessionReady] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
 
   // ✅ subscribe to realtime updates
   useRealtimeRoster(setRoster)
 
-  // Initial load
+  // Auth gate
   useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-
-      // students
-      const { data: sData, error: sErr } = await supabase
-        .from('students')
-        .select('id,first_name,last_name,approved_pickups,school,active,room_id,school_year')
-        .order('last_name', { ascending: true })
-
-      if (sErr) {
-        console.error(sErr)
-      } else if (!cancelled) {
-        setStudents((sData ?? []) as StudentRow[])
+    let mounted = true
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return
+      setHasSession(!!data.session)
+      setSessionReady(true)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
+      setHasSession(!!sess)
+      if (sess) {
+        // after login, reload data
+        loadAll()
+      } else {
+        // after logout, reset UI
+        setStudents([])
+        setRoster({})
       }
-
-      // roster for today
-      const { data: rData, error: rErr } = await supabase
-        .from('roster_status')
-        .select('student_id,current_status')
-        .eq('roster_date', todayKey())
-
-      if (rErr) {
-        console.error(rErr)
-      } else if (!cancelled) {
-        const map: Record<string, Status> = {}
-        ;(rData || []).forEach((r: any) => {
-          map[r.student_id] = r.current_status as Status
-        })
-        setRoster(map)
-      }
-
-      if (!cancelled) setLoading(false)
-    }
-    load()
-    return () => { cancelled = true }
+    })
+    return () => { mounted = false; sub.subscription.unsubscribe() }
   }, [])
 
-  // Optimistic local setter (pages perform RPCs)
+  // Initial load (after session is known)
+  useEffect(() => {
+    if (sessionReady && hasSession) {
+      loadAll()
+    } else if (sessionReady && !hasSession) {
+      setLoading(false) // show login
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionReady, hasSession])
+
+  async function loadAll() {
+    setLoading(true)
+    // students
+    const { data: sData, error: sErr } = await supabase
+      .from('students')
+      .select('id,first_name,last_name,approved_pickups,school,active,room_id,school_year')
+      .order('last_name', { ascending: true })
+    if (sErr) console.error(sErr)
+    setStudents((sData ?? []) as StudentRow[])
+
+    // roster for today (EST)
+    const { data: rData, error: rErr } = await supabase
+      .from('roster_status')
+      .select('student_id,current_status')
+      .eq('roster_date', todayKeyEST())
+    if (rErr) console.error(rErr)
+    const map: Record<string, Status> = {}
+    ;(rData || []).forEach((r: any) => { map[r.student_id] = r.current_status as Status })
+    setRoster(map)
+
+    setLoading(false)
+  }
+
+  // Optimistic local setter (RPCs are called inside pages)
   const onSet = (id: string, st: Status) => {
     setRoster(prev => ({ ...prev, [id]: st }))
   }
 
-  const Nav = (
+  // Daily reset (EST): set all today's rows to not_picked
+  async function resetToday() {
+    if (!confirm('Reset all statuses for today (EST) to "not_picked"?')) return
+    const today = todayKeyEST()
+    // Load all students that have a roster row today; then set to not_picked
+    const { data, error } = await supabase
+      .from('roster_status')
+      .select('student_id,current_status')
+      .eq('roster_date', today)
+    if (error) { alert(error.message); return }
+
+    // Call your existing RPC per student (sequentially to keep logs clean)
+    for (const r of (data || [])) {
+      const id = r.student_id as string
+      await supabase.rpc('api_set_status', {
+        p_student_id: id,
+        p_roster_date: today,
+        p_new_status: 'not_picked',
+        p_pickup_person: null,
+        p_meta: { source: 'ui', reset: true, prev_status: r.current_status }
+      })
+    }
+    // Update local UI immediately
+    setRoster({})
+    alert('Reset complete for today (EST).')
+  }
+
+  async function logout() {
+    await supabase.auth.signOut()
+  }
+
+  const Nav = useMemo(() => (
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="row spread">
         <div className="row">
@@ -71,10 +152,29 @@ export default function App() {
           <button className={'btn ' + (page==='center'?'primary':'')} onClick={() => setPage('center')}>Center</button>
           <button className={'btn ' + (page==='skip'?'primary':'')} onClick={() => setPage('skip')}>Skip</button>
         </div>
-        <div className="muted">Sunny Days – {todayKey()}</div>
+        <div className="row" style={{ gap: 8 }}>
+          <div className="muted">Sunny Days — {todayKeyEST()}</div>
+          {hasSession && (
+            <>
+              <button className="btn" onClick={resetToday}>Daily Reset</button>
+              <button className="btn" onClick={logout}>Logout</button>
+            </>
+          )}
+        </div>
       </div>
     </div>
-  )
+  ), [page, hasSession])
+
+  if (!sessionReady) {
+    return (
+      <div className="container">
+        {Nav}
+        <div className="card">Checking session…</div>
+      </div>
+    )
+  }
+
+  if (!hasSession) return <Login />
 
   if (loading) {
     return (
