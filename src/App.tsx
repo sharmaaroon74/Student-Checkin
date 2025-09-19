@@ -82,6 +82,19 @@ export default function App() {
       }
     }
 
+    // 3) Apply auto-skip for students whose no_bus_days includes today
+    const { error: applyErr } = await supabase.rpc('api_apply_auto_skip_today')
+    if (applyErr) {
+      console.error('Apply auto-skip error:', applyErr.message)
+    } else {
+      // 4) Refetch once to reflect any updates made by the RPC
+      const retry = await supabase
+        .from('roster_status')
+        .select('student_id,current_status')
+        .eq('roster_date', today)
+      data = retry.data
+    }
+
     const map: Record<string, Status> = {}
     ;(data || []).forEach((r: any) => (map[r.student_id] = r.current_status as Status))
     setRoster(map)
@@ -131,7 +144,6 @@ export default function App() {
 
   // ---------------------------
   // Single source of truth for status changes
-  // Always persist via RPC, then update local state optimistically.
   // ---------------------------
   const setStatusPersist = useCallback(
     async (
@@ -159,7 +171,7 @@ export default function App() {
   )
 
   // ---------------------------
-  // Manual daily reset (EST) — no auto reset on refresh/login
+  // Manual daily reset (EST)
   // ---------------------------
   async function resetToday() {
     if (!confirm('Reset all statuses for today (EST) to "not_picked"?')) return
