@@ -4,6 +4,7 @@ import BusPage from './pages/BusPage'
 import CenterPage from './pages/CenterPage'
 import SkipPage from './pages/SkipPage'
 import type { Status, StudentRow } from './types'
+import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 
 type Page = 'bus' | 'center' | 'skip'
 
@@ -29,16 +30,14 @@ function AuthPanePassword() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     setBusy(false)
     if (error) setMsg(`Sign in failed: ${error.message}`)
-    // success → auth listener in App will switch UI
   }
 
   const doSignUp = async () => {
     setBusy(true); setMsg(null)
-    // If "Email confirmations" are enabled in Supabase, the user may need to confirm before session is active.
     const { error } = await supabase.auth.signUp({ email, password })
     setBusy(false)
     if (error) setMsg(`Sign up failed: ${error.message}`)
-    else setMsg('Account created. If email confirmations are enabled, check your inbox to confirm.')
+    else setMsg('Account created. If confirmations are enabled, check your email.')
   }
 
   const submit = async (e: React.FormEvent) => {
@@ -113,6 +112,7 @@ export default function App() {
     const { data, error } = await supabase
       .from('students')
       .select('id, first_name, last_name, approved_pickups, school, active, room_id, school_year')
+      .eq('active', true)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true })
 
@@ -120,9 +120,6 @@ export default function App() {
       console.warn('[students] load error', error)
       alert('Failed to load students (RLS/policy or no session). See console.')
       return
-    }
-    if (!data || data.length === 0) {
-      console.warn('[students] 0 rows returned. Possible RLS block, no data, or not logged in.')
     }
     setStudents((data ?? []) as StudentRow[])
   }, [])
@@ -167,9 +164,15 @@ export default function App() {
     await Promise.all([fetchStudents(), fetchRoster(), fetchPickedLogToday()])
   }, [userId, fetchStudents, fetchRoster, fetchPickedLogToday])
 
-  useEffect(() => {
-    refetchAll()
-  }, [refetchAll])
+  useEffect(() => { refetchAll() }, [refetchAll])
+
+  /** ---------- Realtime subscription + polling fallback ---------- */
+  useRealtimeRoster(
+    rosterDate,
+    setRoster,
+    setRosterTimes,
+    fetchRoster
+  )
 
   /** ---------- Persist status (no optimistic write), then refresh ---------- */
   const setStatusPersist = useCallback(
@@ -227,7 +230,7 @@ export default function App() {
     [userId, rosterDate, fetchRoster, fetchPickedLogToday]
   )
 
-  /** ---------- Daily Reset (optional RPC) ---------- */
+  /** ---------- Daily Reset ---------- */
   const onDailyReset = useCallback(async () => {
     if (!userId) { alert('Please sign in.'); return }
     try {
@@ -249,6 +252,7 @@ export default function App() {
     window.location.replace('/')
   }, [])
 
+  /** ---------- Infer previous status for single Undo on Arrived ---------- */
   const inferPrevStatus = useCallback(
     (s: StudentRow): 'picked' | 'not_picked' => {
       return pickedEverToday.has(s.id) ? 'picked' : 'not_picked'
@@ -259,9 +263,7 @@ export default function App() {
   const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
   /** ---------- If not logged in, show Auth ---------- */
-  if (!userId) {
-    return <AuthPanePassword />
-  }
+  if (!userId) return <AuthPanePassword />
 
   /** ---------- App UI (logged in) ---------- */
   return (
@@ -278,6 +280,7 @@ export default function App() {
           <div className="muted">Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
+          <div className="muted" style={{ marginLeft: 8 }}>build: v1.1-realtime</div>
         </div>
       </div>
 
