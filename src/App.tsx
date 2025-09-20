@@ -278,7 +278,6 @@ export default function App() {
           <div className="muted">Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
-          <div className="muted" style={{ marginLeft: 8 }}>build: auth-password</div>
         </div>
       </div>
 

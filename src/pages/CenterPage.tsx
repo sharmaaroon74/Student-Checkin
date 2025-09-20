@@ -29,6 +29,14 @@ function fmtEST(iso?: string) {
   }
 }
 
+/** Current time (HH:MM) in EST for <input type="time"> */
+function currentTimeEST_HHMM() {
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const hh = String(nowEST.getHours()).padStart(2, '0')
+  const mm = String(nowEST.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
 function nameOf(s: StudentRow) {
   return `${s.first_name} ${s.last_name}`
 }
@@ -54,11 +62,55 @@ function StudentRowCard({
   )
 }
 
+/** simple modal */
+function Modal({
+  open,
+  title,
+  onClose,
+  children,
+}: {
+  open: boolean
+  title: string
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  if (!open) return null
+  return (
+    <div className="fixed-overlay">
+      <div className="modal">
+        <div className="row between" style={{ marginBottom: 8 }}>
+          <div className="title">{title}</div>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+        {children}
+      </div>
+      <style>{`
+        .fixed-overlay{
+          position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+          display:flex; align-items:center; justify-content:center; z-index:9999;
+          padding: 16px;
+        }
+        .modal{
+          background:#fff; border-radius:16px; padding:16px; width:min(560px, 100%);
+          box-shadow:0 10px 30px rgba(0,0,0,0.2);
+        }
+      `}</style>
+    </div>
+  )
+}
+
 export default function CenterPage({ students, roster, rosterTimes, onSet, inferPrevStatus }: Props) {
   const [tab, setTab] = useState<CenterTab>('in')
   const [school, setSchool] = useState<string>('All') // single select (like Skip page)
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('first')
+
+  // checkout modal state
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [checkoutStudent, setCheckoutStudent] = useState<StudentRow | null>(null)
+  const [pickupSelect, setPickupSelect] = useState<string>('') // selected from approved list
+  const [pickupOther, setPickupOther] = useState<string>('')   // admin override
+  const [pickupTime, setPickupTime] = useState<string>(currentTimeEST_HHMM())
 
   // two-column wrapper (guaranteed side-by-side on typical widths)
   const twoCol: React.CSSProperties = {
@@ -76,6 +128,31 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     },
     [onSet]
   )
+
+  // Open checkout modal for a student
+  const openCheckout = useCallback((s: StudentRow) => {
+    setCheckoutStudent(s)
+    setPickupSelect(s.approved_pickups?.[0] ?? '')
+    setPickupOther('')
+    setPickupTime(currentTimeEST_HHMM())
+    setCheckoutOpen(true)
+  }, [])
+
+  // Confirm checkout → choose pickup person + time (EST)
+  const confirmCheckout = useCallback(() => {
+    if (!checkoutStudent) return
+    const pickupPerson = pickupOther?.trim() ? pickupOther.trim() : pickupSelect?.trim()
+    if (!pickupPerson) {
+      alert('Please select or enter the pickup person.')
+      return
+    }
+    act(checkoutStudent.id, 'checked', {
+      pickupPerson,
+      time_est: pickupTime, // HH:MM EST
+    })
+    setCheckoutOpen(false)
+    setCheckoutStudent(null)
+  }, [checkoutStudent, pickupOther, pickupSelect, pickupTime, act])
 
   const sorted = useMemo(() => {
     const arr = [...students]
@@ -230,7 +307,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
-                      <button className="btn primary" onClick={() => act(s.id, 'checked')}>Checkout</button>
+                      <button className="btn primary" onClick={() => openCheckout(s)}>Checkout</button>
                       {/* Single Undo: Arrived -> (picked | not_picked) based on log heuristic */}
                       <button
                         className="btn"
@@ -269,6 +346,54 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
           </div>
         </div>
       )}
+
+      {/* Approved Pickup Modal */}
+      <Modal
+        open={checkoutOpen}
+        title={checkoutStudent ? `Checkout — ${nameOf(checkoutStudent)}` : 'Checkout'}
+        onClose={() => { setCheckoutOpen(false); setCheckoutStudent(null) }}
+      >
+        {checkoutStudent && (
+          <div className="col gap">
+            <div className="row gap wrap">
+              <div style={{ minWidth: 240, flex: 1 }}>
+                <div className="muted" style={{ marginBottom: 6 }}>Approved Pickup</div>
+                <select
+                  value={pickupSelect}
+                  onChange={(e) => setPickupSelect(e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">— Select —</option>
+                  {(checkoutStudent.approved_pickups ?? []).map((p, idx) => (
+                    <option key={idx} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ minWidth: 240, flex: 1 }}>
+                <div className="muted" style={{ marginBottom: 6 }}>Admin Override (type name)</div>
+                <input
+                  value={pickupOther}
+                  onChange={(e) => setPickupOther(e.target.value)}
+                  placeholder="Override name (optional)"
+                />
+              </div>
+              <div style={{ minWidth: 160 }}>
+                <div className="muted" style={{ marginBottom: 6 }}>Pickup Time (EST)</div>
+                <input
+                  type="time"
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="row gap" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => { setCheckoutOpen(false); setCheckoutStudent(null) }}>Cancel</button>
+              <button className="btn primary" onClick={confirmCheckout}>Save & Checkout</button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
