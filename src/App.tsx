@@ -16,9 +16,55 @@ function todayKeyEST(d = new Date()): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
+/** ---------- Simple Auth UI (email magic link) ---------- */
+function AuthPane() {
+  const [email, setEmail] = useState('')
+  const [sending, setSending] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const sendLink = async () => {
+    if (!email) return
+    setSending(true)
+    setMsg(null)
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin, // make sure this URL is in Supabase Auth > Redirect URLs
+      },
+    })
+    setSending(false)
+    if (error) setMsg(`Error: ${error.message}`)
+    else setMsg('Magic link sent! Check your email and click the link to finish sign-in.')
+  }
+
+  return (
+    <div className="container" style={{ maxWidth: 520, marginTop: 40 }}>
+      <div className="card">
+        <h2 style={{ marginBottom: 12 }}>Sunny Days – Sign in</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Enter your email and we’ll send you a one-time magic link.
+        </p>
+        <div className="row gap">
+          <input
+            placeholder="you@school.org"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <button className="btn primary" onClick={sendLink} disabled={sending}>
+            {sending ? 'Sending…' : 'Send Link'}
+          </button>
+        </div>
+        {msg && <div style={{ marginTop: 10 }} className="muted">{msg}</div>}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>('bus')
 
+  const [userId, setUserId] = useState<string | null>(null)         // <— session guard
   const [students, setStudents] = useState<StudentRow[]>([])
   const [roster, setRoster] = useState<Record<string, Status>>({})
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
@@ -27,7 +73,21 @@ export default function App() {
 
   const rosterDate = todayKeyEST()
 
-  // ---------- Load students (RLS-resilient; no active filter for now)
+  /** ---------- Session bootstrap & listener ---------- */
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      const { data } = await supabase.auth.getSession()
+      if (!mounted) return
+      setUserId(data.session?.user?.id ?? null)
+    })()
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
+      setUserId(session?.user?.id ?? null)
+    })
+    return () => { sub.subscription.unsubscribe() }
+  }, [])
+
+  /** ---------- Data fetchers (run only when logged in) ---------- */
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
@@ -37,16 +97,15 @@ export default function App() {
 
     if (error) {
       console.warn('[students] load error', error)
-      alert('Failed to load students (RLS/policy issue). Open console for details.')
+      alert('Failed to load students (RLS/policy or no session). See console.')
       return
     }
     if (!data || data.length === 0) {
-      console.warn('[students] 0 rows returned. Possible RLS block or empty table.')
+      console.warn('[students] 0 rows returned. Possible RLS block, no data, or not logged in.')
     }
     setStudents((data ?? []) as StudentRow[])
   }, [])
 
-  // ---------- Load today’s roster_status
   const fetchRoster = useCallback(async () => {
     const { data, error } = await supabase
       .from('roster_status')
@@ -55,7 +114,6 @@ export default function App() {
 
     if (error) {
       console.warn('[roster_status] load error', error)
-      alert('Failed to load roster (RLS/policy issue). See console.')
       return
     }
     const map: Record<string, Status> = {}
@@ -68,14 +126,12 @@ export default function App() {
     setRosterTimes(times)
   }, [rosterDate])
 
-  // ---------- Logs to infer previous queue for Checkout "Undo"
   const fetchPickedLogToday = useCallback(async () => {
     const { data, error } = await supabase
       .from('logs')
       .select('student_id,action,roster_date')
       .eq('roster_date', rosterDate)
       .eq('action', 'picked')
-
     if (error) {
       console.warn('[logs] load error (non-critical)', error)
       return
@@ -85,24 +141,23 @@ export default function App() {
     setPickedEverToday(ids)
   }, [rosterDate])
 
-  // ---------- One-shot refresh
   const refetchAll = useCallback(async () => {
+    if (!userId) return
     await Promise.all([fetchStudents(), fetchRoster(), fetchPickedLogToday()])
-  }, [fetchStudents, fetchRoster, fetchPickedLogToday])
+  }, [userId, fetchStudents, fetchRoster, fetchPickedLogToday])
 
   useEffect(() => {
     refetchAll()
   }, [refetchAll])
 
-  // ---------- Persist status (NO optimistic write), then refresh from server
+  /** ---------- Persist status (no optimistic write), then refresh ---------- */
   const setStatusPersist = useCallback(
     async (studentId: string, st: Status, meta?: any) => {
-      if (!studentId) return
+      if (!userId) { alert('Please sign in.'); return }
       setSaving(prev => ({ ...prev, [studentId]: true }))
       let wrote = false
 
       try {
-        // Preferred path: secure RPC (security definer)
         const { error: rpcErr } = await supabase.rpc('api_set_status', {
           p_student_id: studentId,
           p_new_status: st,
@@ -111,8 +166,6 @@ export default function App() {
 
         if (rpcErr) {
           console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
-
-          // Fallback path: direct upsert (requires RLS insert/update on roster_status)
           const { error: upErr } = await supabase
             .from('roster_status')
             .upsert({
@@ -121,10 +174,9 @@ export default function App() {
               current_status: st,
               last_update: new Date().toISOString(),
             })
-
           if (upErr) {
             console.error('[roster_status upsert] error', upErr)
-            alert(`Failed to save. Likely a policy / RPC issue.\n\nDetails:\n${upErr.message || upErr}`)
+            alert(`Failed to save.\n\n${upErr.message || upErr}`)
           } else {
             wrote = true
           }
@@ -133,7 +185,7 @@ export default function App() {
         }
       } catch (e: any) {
         console.error('[api_set_status] exception', e)
-        alert(`Failed to save due to an exception.\n\nDetails:\n${e?.message || e}`)
+        alert(`Failed to save due to an exception.\n\n${e?.message || e}`)
       } finally {
         setSaving(prev => {
           const next = { ...prev }
@@ -142,18 +194,18 @@ export default function App() {
         })
       }
 
-      // Reconcile with server as the source of truth
       if (wrote) {
         await Promise.all([fetchRoster(), fetchPickedLogToday()])
       } else {
         await fetchRoster()
       }
     },
-    [rosterDate, fetchRoster, fetchPickedLogToday]
+    [userId, rosterDate, fetchRoster, fetchPickedLogToday]
   )
 
-  // ---------- Daily Reset (optional RPC if you created one)
+  /** ---------- Daily Reset (optional RPC) ---------- */
   const onDailyReset = useCallback(async () => {
+    if (!userId) { alert('Please sign in.'); return }
     try {
       const { error } = await supabase.rpc('api_daily_reset')
       if (error) console.warn('[rpc api_daily_reset] missing?', error)
@@ -161,20 +213,18 @@ export default function App() {
       console.warn('[rpc api_daily_reset] exception', e)
     }
     await refetchAll()
-  }, [refetchAll])
+  }, [userId, refetchAll])
 
-  // ---------- Hard logout (clear stale tokens)
+  /** ---------- Hard logout ---------- */
   const onLogout = useCallback(async () => {
     try { await supabase.auth.signOut() } catch {}
     try {
-      Object.keys(localStorage).forEach(k => {
-        if (k.startsWith('sb-')) localStorage.removeItem(k)
-      })
+      Object.keys(localStorage).forEach(k => { if (k.startsWith('sb-')) localStorage.removeItem(k) })
     } catch {}
-    window.location.replace('/')
+    setUserId(null)         // show AuthPane immediately
+    window.location.replace('/') // ensure a clean reload
   }, [])
 
-  // ---------- Single Undo inference for Checkout panel
   const inferPrevStatus = useCallback(
     (s: StudentRow): 'picked' | 'not_picked' => {
       return pickedEverToday.has(s.id) ? 'picked' : 'not_picked'
@@ -182,18 +232,14 @@ export default function App() {
     [pickedEverToday]
   )
 
-  // ---------- Header date (EST)
   const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
-  // ---------- Action wrapper to prevent double-click storms
-  const onSet = useCallback(
-    (id: string, st: Status, meta?: any) => {
-      if (saving[id]) return
-      setStatusPersist(id, st, meta)
-    },
-    [saving, setStatusPersist]
-  )
+  /** ---------- If not logged in, show Auth ---------- */
+  if (!userId) {
+    return <AuthPane />
+  }
 
+  /** ---------- App UI (logged in) ---------- */
   return (
     <div className="container">
       {/* Top Nav */}
@@ -208,7 +254,7 @@ export default function App() {
           <div className="muted">Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
-          <div className="muted" style={{ marginLeft: 8 }}>build: debug/rls-safe</div>
+          <div className="muted" style={{ marginLeft: 8 }}>build: auth-gate</div>
         </div>
       </div>
 
@@ -218,7 +264,7 @@ export default function App() {
           students={students}
           roster={roster}
           rosterTimes={rosterTimes}
-          onSet={onSet}
+          onSet={setStatusPersist}
         />
       )}
       {page === 'center' && (
@@ -226,7 +272,7 @@ export default function App() {
           students={students}
           roster={roster}
           rosterTimes={rosterTimes}
-          onSet={onSet}
+          onSet={setStatusPersist}
           inferPrevStatus={inferPrevStatus}
         />
       )}
@@ -235,7 +281,7 @@ export default function App() {
           students={students}
           roster={roster}
           rosterTimes={rosterTimes}
-          onSet={onSet}
+          onSet={setStatusPersist}
         />
       )}
     </div>
