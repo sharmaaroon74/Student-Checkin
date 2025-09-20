@@ -1,138 +1,118 @@
-// src/pages/SkipPage.tsx
 import React, { useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
 import type { StudentRow, Status } from '../types'
-import { todayKeyEST } from '../lib/date'
 
-type AllowedSchool = 'Bain' | 'QG' | 'MHE' | 'MC'
-
-type StudentVM = {
-  id: string
-  first: string
-  last: string
-  name: string
-  school: string
-  status: Status
+type Props = {
+  students: StudentRow[]
+  roster: Record<string, Status>
+  onSet: (id: string, st: Status, meta?: any) => void
 }
 
-export default function SkipPage({
-  students, roster, onSet
-}:{ 
-  students: StudentRow[], 
-  roster: Record<string, Status>, 
-  onSet:(id:string, st: Status, meta?: Record<string,any>)=>Promise<void>|void 
-}){
-  const [sortBy, setSortBy] = useState<'first'|'last'>('first')
-  const [school, setSchool] = useState<AllowedSchool | 'All'>('All')
+const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
+type SchoolFilter = typeof SCHOOLS[number]
+const SORTS = ['First Name', 'Last Name'] as const
+type SortKey = typeof SORTS[number]
+
+export default function SkipPage({ students, roster, onSet }: Props) {
+  const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
+  const [sortBy, setSortBy] = useState<SortKey>('First Name')
 
-  const vm = useMemo<StudentVM[]>(()=> students.map(s=>({
-    id: s.id,
-    first: s.first_name,
-    last:  s.last_name,
-    name: s.first_name + ' ' + s.last_name,
-    school: (s.school as any) ?? '',
-    status: roster[s.id] ?? 'not_picked'
-  })), [students, roster])
-
-  const sortFn = (a: StudentVM, b: StudentVM) =>
-    sortBy === 'first'
-      ? a.first.localeCompare(b.first) || a.last.localeCompare(b.last)
-      : a.last.localeCompare(b.last) || a.first.localeCompare(b.first)
-
-  const qlc = q.trim().toLowerCase()
-  const matchesSearch = (s: StudentVM) => !qlc || s.first.toLowerCase().includes(qlc) || s.last.toLowerCase().includes(qlc)
-
-  const filtered = vm.filter(s => (school === 'All' || s.school === school) && matchesSearch(s))
-
-  const skipped   = filtered.filter(s => s.status === 'skipped').sort(sortFn)
-  const candidates= filtered.filter(s => s.status !== 'skipped').sort(sortFn)
-
-  async function skipToday(studentId: string) {
-    const prev = (roster[studentId] ?? 'not_picked') as Status
-    await onSet(studentId, 'skipped', { prev_status: prev })
+  const norm = (s: string) => s.toLowerCase().trim()
+  const matches = (s: StudentRow) => {
+    const hit = norm(s.first_name).includes(norm(q)) || norm(s.last_name).includes(norm(q))
+    if (!hit) return false
+    if (school === 'All') return true
+    return s.school === school
   }
+  const cmp = (a: StudentRow, b: StudentRow) =>
+    sortBy === 'First Name'
+      ? a.first_name.localeCompare(b.first_name) || a.last_name.localeCompare(b.last_name)
+      : a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
 
-  async function unskipToday(studentId: string) {
-    // Look up last "skipped" log to find prev_status; fallback to not_picked
-    const { data, error } = await supabase
-      .from('logs')
-      .select('meta')
-      .eq('roster_date', todayKeyEST())
-      .eq('student_id', studentId)
-      .eq('action', 'skipped')
-      .order('at', { ascending: false })
-      .limit(1)
-    const prev = (data?.[0]?.meta?.prev_status as Status) || 'not_picked'
-    if (error) console.error(error)
-    await onSet(studentId, prev, { undo_of: 'skipped' })
+  const markSkipCandidates = useMemo(
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') !== 'skipped' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
+  )
+  const skippedToday = useMemo(
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'skipped' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
+  )
+
+  function CardRow({ s, right }: { s: StudentRow; right: React.ReactNode }) {
+    return (
+      <div className="row card-row">
+        <div className="grow">
+          <div className="name">{s.first_name} {s.last_name}</div>
+          <div className="sub">School: {s.school}</div>
+        </div>
+        <div className="actions">{right}</div>
+      </div>
+    )
   }
 
   return (
-    <div className="grid cols-2">
-      <div className="card">
-        <div className="row spread">
-          <h3 className="heading">Mark Skip Today</h3>
-          <div className="row">
-            {(['All', 'Bain', 'QG', 'MHE', 'MC'] as const).map(sc => (
-              <button key={sc} className={'chip ' + (school === sc ? 'active' : '')} onClick={() => setSchool(sc as any)}>{sc}</button>
-            ))}
-            <div className="row" style={{ marginLeft: 8 }}>
-              <span className="muted" style={{ marginRight: 6 }}>Sort</span>
-              <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
-                <option value="first">First name</option>
-                <option value="last">Last name</option>
-              </select>
-            </div>
-            <input placeholder="Search name…" value={q} onChange={e=>setQ(e.target.value)} style={{ marginLeft: 8, minWidth: 180 }} />
-          </div>
-        </div>
-        <div className="list" style={{marginTop:12}}>
-          {candidates.map(s=> (
-            <div key={s.id} className="item">
-              <div>
-                <div className="heading">{s.name}</div>
-                <div className="muted" style={{fontSize:13}}>{s.school} • Status: <b>{s.status}</b></div>
-              </div>
-              <div className="row">
-                <button className="btn small" onClick={()=>skipToday(s.id)}>Skip Today</button>
-              </div>
-            </div>
+    <div className="card">
+      {/* Page-level filters */}
+      <div className="row wrap gap" style={{ marginBottom: 8 }}>
+        <div className="seg">
+          {SCHOOLS.map(s => (
+            <button
+              key={s}
+              className={'seg-btn' + (school === s ? ' on' : '')}
+              onClick={() => setSchool(s)}
+            >
+              {s}
+            </button>
           ))}
-          {!candidates.length && <div className="muted">No candidates</div>}
+        </div>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search student…"
+          style={{ minWidth: 220 }}
+        />
+        <div className="row gap">
+          <label className="label">Sort</label>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}>
+            {SORTS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
         </div>
       </div>
 
-      <div className="card">
-        <div className="row spread">
-          <h3 className="heading">Skipped Today</h3>
-          <div className="row">
-            {(['All', 'Bain', 'QG', 'MHE', 'MC'] as const).map(sc => (
-              <button key={sc} className={'chip ' + (school === sc ? 'active' : '')} onClick={() => setSchool(sc as any)}>{sc}</button>
-            ))}
-            <div className="row" style={{ marginLeft: 8 }}>
-              <span className="muted" style={{ marginRight: 6 }}>Sort</span>
-              <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
-                <option value="first">First name</option>
-                <option value="last">Last name</option>
-              </select>
+      {/* Two columns */}
+      <div className="columns">
+        <div className="subcard">
+          <h3 className="section-title">Mark Skip Today</h3>
+          {markSkipCandidates.length === 0 ? (
+            <div className="muted">No students to skip.</div>
+          ) : (
+            <div className="list">
+              {markSkipCandidates.map(s => (
+                <CardRow
+                  key={s.id}
+                  s={s}
+                  right={<button className="btn" onClick={() => onSet(s.id, 'skipped')}>Skip Today</button>}
+                />
+              ))}
             </div>
-            <input placeholder="Search name…" value={q} onChange={e=>setQ(e.target.value)} style={{ marginLeft: 8, minWidth: 180 }} />
-          </div>
+          )}
         </div>
-        <div className="list" style={{marginTop:12}}>
-          {skipped.map(s=> (
-            <div key={s.id} className="item">
-              <div>
-                <div className="heading">{s.name}</div>
-                <div className="muted" style={{fontSize:13}}>{s.school} • Status: <b>skipped</b></div>
-              </div>
-              <div className="row">
-                <button className="btn small" onClick={()=>unskipToday(s.id)}>Unskip Today</button>
-              </div>
+
+        <div className="subcard">
+          <h3 className="section-title">Skipped Today</h3>
+          {skippedToday.length === 0 ? (
+            <div className="muted">No skipped students.</div>
+          ) : (
+            <div className="list">
+              {skippedToday.map(s => (
+                <CardRow
+                  key={s.id}
+                  s={s}
+                  right={<button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Unskip Today</button>}
+                />
+              ))}
             </div>
-          ))}
-          {!skipped.length && <div className="muted">None</div>}
+          )}
         </div>
       </div>
     </div>

@@ -186,6 +186,7 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
+
   const Nav = useMemo(() => (
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="row spread">
@@ -203,7 +204,7 @@ export default function App() {
             </>
           )}
         </div>
-        <div className="muted" style={{marginLeft:8}}>build: 2025-09-20-e</div>
+        <div className="muted" style={{marginLeft:8}}>build: 2025-09-20-f</div>
       </div>
     </div>
   ), [page, hasSession])

@@ -9,10 +9,13 @@ type Props = {
 
 const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
 type SchoolFilter = typeof SCHOOLS[number]
+const SORTS = ['First Name', 'Last Name'] as const
+type SortKey = typeof SORTS[number]
 
 export default function BusPage({ students, roster, onSet }: Props) {
   const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
+  const [sortBy, setSortBy] = useState<SortKey>('First Name')
 
   const norm = (s: string) => s.toLowerCase().trim()
   const matches = (s: StudentRow) => {
@@ -21,15 +24,18 @@ export default function BusPage({ students, roster, onSet }: Props) {
     if (school === 'All') return true
     return s.school === school
   }
+  const cmp = (a: StudentRow, b: StudentRow) =>
+    sortBy === 'First Name'
+      ? a.first_name.localeCompare(b.first_name) || a.last_name.localeCompare(b.last_name)
+      : a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
 
   const toPickup = useMemo(
-    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'not_picked' && matches(s)),
-    [students, roster, school, q]
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'not_picked' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
   )
-
   const skippedToday = useMemo(
-    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'skipped' && matches(s)),
-    [students, roster, school, q]
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'skipped' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
   )
 
   function CardRow({ s, right }: { s: StudentRow; right: React.ReactNode }) {
@@ -46,13 +52,18 @@ export default function BusPage({ students, roster, onSet }: Props) {
 
   return (
     <div className="card">
-      {/* Filters */}
+      {/* Page-level filters */}
       <div className="row wrap gap" style={{ marginBottom: 8 }}>
-        <div className="row gap">
-          <label className="label">School</label>
-          <select value={school} onChange={e => setSchool(e.target.value as SchoolFilter)}>
-            {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+        <div className="seg">
+          {SCHOOLS.map(s => (
+            <button
+              key={s}
+              className={'seg-btn' + (school === s ? ' on' : '')}
+              onClick={() => setSchool(s)}
+            >
+              {s}
+            </button>
+          ))}
         </div>
         <input
           value={q}
@@ -60,11 +71,17 @@ export default function BusPage({ students, roster, onSet }: Props) {
           placeholder="Search student…"
           style={{ minWidth: 220 }}
         />
+        <div className="row gap">
+          <label className="label">Sort</label>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}>
+            {SORTS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Two columns */}
       <div className="columns">
-        {/* Left column: Bus Pickup (Pick only) */}
+        {/* Left: Bus Pickup */}
         <div className="subcard">
           <h3 className="section-title">Bus Pickup</h3>
           {toPickup.length === 0 ? (
@@ -82,7 +99,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
           )}
         </div>
 
-        {/* Right column: Skipped Today (Undo only) */}
+        {/* Right: Skipped Today */}
         <div className="subcard">
           <h3 className="section-title">Skipped Today</h3>
           {skippedToday.length === 0 ? (
