@@ -6,7 +6,6 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
-  // For Undo on "Checkout" (left column): arrived -> picked/not_picked
   inferPrevStatus: (s: StudentRow) => 'picked' | 'not_picked'
 }
 
@@ -14,7 +13,6 @@ type CenterTab = 'in' | 'out'
 type SortKey = 'first' | 'last'
 const SCHOOLS = ['Bain', 'QG', 'MHE', 'MC'] as const
 
-/** Format time in America/New_York (no seconds) */
 function fmtEST(iso?: string) {
   if (!iso) return ''
   try {
@@ -29,7 +27,6 @@ function fmtEST(iso?: string) {
   }
 }
 
-/** Current time (HH:MM) in EST for <input type="time"> */
 function currentTimeEST_HHMM() {
   const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
   const hh = String(nowEST.getHours()).padStart(2, '0')
@@ -41,7 +38,6 @@ function nameOf(s: StudentRow) {
   return `${s.first_name} ${s.last_name}`
 }
 
-/** shared row UI */
 function StudentRowCard({
   s,
   subtitle,
@@ -62,7 +58,6 @@ function StudentRowCard({
   )
 }
 
-/** simple modal */
 function Modal({
   open,
   title,
@@ -78,7 +73,7 @@ function Modal({
   return (
     <div className="fixed-overlay">
       <div className="modal">
-        <div className="row between" style={{ marginBottom: 8 }}>
+        <div className="row between" style={{ marginBottom: 12 }}>
           <div className="title">{title}</div>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
@@ -86,13 +81,25 @@ function Modal({
       </div>
       <style>{`
         .fixed-overlay{
-          position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+          position: fixed; inset: 0; background: rgba(0,0,0,0.45);
           display:flex; align-items:center; justify-content:center; z-index:9999;
-          padding: 16px;
+          padding: 24px;
         }
         .modal{
-          background:#fff; border-radius:16px; padding:16px; width:min(560px, 100%);
-          box-shadow:0 10px 30px rgba(0,0,0,0.2);
+          background:#fff; border-radius:18px; padding:20px;
+          width:min(720px, 92vw); max-height: 88vh; overflow:auto;
+          box-shadow:0 18px 50px rgba(0,0,0,0.25);
+        }
+        .pill-grid{
+          display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr));
+          gap:10px;
+        }
+        .pill{
+          border:1px solid #d1d5db; padding:10px 12px; border-radius:999px;
+          background:#fff; cursor:pointer; text-align:left;
+        }
+        .pill.on{
+          background:#0b1220; color:#fff; border-color:#0b1220;
         }
       `}</style>
     </div>
@@ -101,18 +108,17 @@ function Modal({
 
 export default function CenterPage({ students, roster, rosterTimes, onSet, inferPrevStatus }: Props) {
   const [tab, setTab] = useState<CenterTab>('in')
-  const [school, setSchool] = useState<string>('All') // single select (like Skip page)
+  const [school, setSchool] = useState<string>('All')
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('first')
 
   // checkout modal state
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutStudent, setCheckoutStudent] = useState<StudentRow | null>(null)
-  const [pickupSelect, setPickupSelect] = useState<string>('') // selected from approved list
+  const [pickupSelect, setPickupSelect] = useState<string>('') // single selection; no default
   const [pickupOther, setPickupOther] = useState<string>('')   // admin override
   const [pickupTime, setPickupTime] = useState<string>(currentTimeEST_HHMM())
 
-  // two-column wrapper (guaranteed side-by-side on typical widths)
   const twoCol: React.CSSProperties = {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
@@ -120,7 +126,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     alignItems: 'start',
   }
 
-  // Clear search whenever we take an action (requested behavior)
   const act = useCallback(
     (id: string, st: Status, meta?: any) => {
       setQ('')
@@ -129,26 +134,24 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     [onSet]
   )
 
-  // Open checkout modal for a student
   const openCheckout = useCallback((s: StudentRow) => {
     setCheckoutStudent(s)
-    setPickupSelect(s.approved_pickups?.[0] ?? '')
+    setPickupSelect('') // no default selection
     setPickupOther('')
     setPickupTime(currentTimeEST_HHMM())
     setCheckoutOpen(true)
   }, [])
 
-  // Confirm checkout → choose pickup person + time (EST)
   const confirmCheckout = useCallback(() => {
     if (!checkoutStudent) return
-    const pickupPerson = pickupOther?.trim() ? pickupOther.trim() : pickupSelect?.trim()
+    const pickupPerson = (pickupOther?.trim() || pickupSelect?.trim())
     if (!pickupPerson) {
-      alert('Please select or enter the pickup person.')
+      alert('Please tap a pickup name or type an override.')
       return
     }
     act(checkoutStudent.id, 'checked', {
       pickupPerson,
-      time_est: pickupTime, // HH:MM EST
+      time_est: pickupTime,
     })
     setCheckoutOpen(false)
     setCheckoutStudent(null)
@@ -176,7 +179,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     [school, q]
   )
 
-  // Buckets by current status
   const pickedFromBus = useMemo(
     () => sorted.filter((s) => roster[s.id] === 'picked' && matchesFilters(s)),
     [sorted, roster, matchesFilters]
@@ -186,7 +188,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     () =>
       sorted.filter((s) => {
         const st = roster[s.id]
-        // Direct check-in shows students not on bus & not skipped & not arrived/checked
         return (!st || st === 'not_picked') && matchesFilters(s)
       }),
     [sorted, roster, matchesFilters]
@@ -202,7 +203,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     [sorted, roster, matchesFilters]
   )
 
-  // Build subtitle with current status + time
   const subtitleFor = (s: StudentRow) => {
     const st = roster[s.id]
     const base = `School: ${s.school} | ${
@@ -222,7 +222,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     <div className="panel">
       {/* Page filters */}
       <div className="row gap wrap" style={{ marginBottom: 12 }}>
-        {/* School pills (single select, like Skip page) */}
         <div className="seg">
           <button className={'seg-btn' + (school === 'All' ? ' on' : '')} onClick={() => setSchool('All')}>All</button>
           {SCHOOLS.map((sch) => (
@@ -252,7 +251,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
 
       {tab === 'in' ? (
         <div style={twoCol}>
-          {/* Left: Center Check-in (from Bus) */}
           <div className="card">
             <h3>Center Check-in (from Bus)</h3>
             {pickedFromBus.length === 0 ? (
@@ -266,7 +264,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   actions={
                     <>
                       <button className="btn primary" onClick={() => act(s.id, 'arrived')}>Mark Arrived</button>
-                      {/* Undo here: sends picked -> not_picked */}
                       <button className="btn" onClick={() => act(s.id, 'not_picked')}>Undo</button>
                     </>
                   }
@@ -275,7 +272,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
             )}
           </div>
 
-          {/* Right: Direct Check-in (No Bus) */}
           <div className="card">
             <h3>Direct Check-in (No Bus)</h3>
             {directCheckIn.length === 0 ? (
@@ -294,7 +290,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         </div>
       ) : (
         <div style={twoCol}>
-          {/* Left: Checkout (arrived) */}
           <div className="card">
             <h3>Checkout</h3>
             {arrived.length === 0 ? (
@@ -307,8 +302,8 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
+                      {/* opens modal */}
                       <button className="btn primary" onClick={() => openCheckout(s)}>Checkout</button>
-                      {/* Single Undo: Arrived -> (picked | not_picked) based on log heuristic */}
                       <button
                         className="btn"
                         onClick={() => act(s.id, inferPrevStatus(s))}
@@ -323,7 +318,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
             )}
           </div>
 
-          {/* Right: Checked Out */}
           <div className="card">
             <h3>Checked Out</h3>
             {checkedOut.length === 0 ? (
@@ -334,12 +328,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
-                  actions={
-                    // Undo on Checked Out panel → move back to Arrived
-                    <button className="btn" onClick={() => act(s.id, 'arrived')}>
-                      Undo
-                    </button>
-                  }
+                  actions={<button className="btn" onClick={() => act(s.id, 'arrived')}>Undo</button>}
                 />
               ))
             )}
@@ -347,7 +336,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         </div>
       )}
 
-      {/* Approved Pickup Modal */}
+      {/* Checkout Modal (centered; pickup chips; EST time) */}
       <Modal
         open={checkoutOpen}
         title={checkoutStudent ? `Checkout — ${nameOf(checkoutStudent)}` : 'Checkout'}
@@ -355,21 +344,26 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
       >
         {checkoutStudent && (
           <div className="col gap">
-            <div className="row gap wrap">
-              <div style={{ minWidth: 240, flex: 1 }}>
-                <div className="muted" style={{ marginBottom: 6 }}>Approved Pickup</div>
-                <select
-                  value={pickupSelect}
-                  onChange={(e) => setPickupSelect(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">— Select —</option>
-                  {(checkoutStudent.approved_pickups ?? []).map((p, idx) => (
-                    <option key={idx} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ minWidth: 240, flex: 1 }}>
+            <div className="muted" style={{ marginBottom: 6 }}>Approved Pickup</div>
+
+            <div className="pill-grid" style={{ marginBottom: 10 }}>
+              {(checkoutStudent.approved_pickups ?? []).map((p, idx) => {
+                const active = pickupSelect === p
+                return (
+                  <button
+                    key={idx}
+                    className={'pill' + (active ? ' on' : '')}
+                    onClick={() => setPickupSelect(active ? '' : p)}
+                    type="button"
+                  >
+                    {p}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="row gap wrap" style={{ marginTop: 4 }}>
+              <div style={{ minWidth: 260, flex: 1 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Admin Override (type name)</div>
                 <input
                   value={pickupOther}
@@ -377,7 +371,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   placeholder="Override name (optional)"
                 />
               </div>
-              <div style={{ minWidth: 160 }}>
+              <div style={{ minWidth: 180 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Pickup Time (EST)</div>
                 <input
                   type="time"
@@ -387,9 +381,11 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
               </div>
             </div>
 
-            <div className="row gap" style={{ justifyContent: 'flex-end' }}>
+            <div className="row gap" style={{ justifyContent: 'flex-end', marginTop: 12 }}>
               <button className="btn" onClick={() => { setCheckoutOpen(false); setCheckoutStudent(null) }}>Cancel</button>
-              <button className="btn primary" onClick={confirmCheckout}>Save & Checkout</button>
+              {/* As requested: both buttons available with the given labels; both perform the checkout */}
+              <button className="btn" onClick={confirmCheckout}>Save &amp; Checkout</button>
+              <button className="btn primary" onClick={confirmCheckout}>Checkout</button>
             </div>
           </div>
         )}
