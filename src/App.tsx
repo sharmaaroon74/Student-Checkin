@@ -1,242 +1,199 @@
-// src/App.tsx
-import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabase'
 import BusPage from './pages/BusPage'
 import CenterPage from './pages/CenterPage'
 import SkipPage from './pages/SkipPage'
-import { useRealtimeRoster } from './hooks/useRealtimeRoster'
-import type { StudentRow, Status } from './types'
-import { todayKeyEST } from './lib/date'
+import type { Status, StudentRow } from './types'
 
 type Page = 'bus' | 'center' | 'skip'
 
-function Login() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  async function signIn(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
-    if (error) alert(error.message)
-  }
-  return (
-    <div className="container">
-      <div className="card" style={{ maxWidth: 420, margin: '80px auto' }}>
-        <h2 className="heading">Sunny Days – Sign in</h2>
-        <form onSubmit={signIn} style={{ display: 'grid', gap: 10, marginTop: 12 }}>
-          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
-          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-          <button className="btn primary" disabled={loading} type="submit">
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-      </div>
-    </div>
-  )
+/** YYYY-MM-DD in America/New_York */
+function todayKeyEST(d = new Date()): string {
+  const est = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const yyyy = est.getFullYear()
+  const mm = String(est.getMonth() + 1).padStart(2, '0')
+  const dd = String(est.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
 }
 
 export default function App() {
   const [page, setPage] = useState<Page>('bus')
-  const [loading, setLoading] = useState(true)
+
   const [students, setStudents] = useState<StudentRow[]>([])
   const [roster, setRoster] = useState<Record<string, Status>>({})
-  const [sessionReady, setSessionReady] = useState(false)
-  const [hasSession, setHasSession] = useState(false)
+  const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
+  const [pickedEverToday, setPickedEverToday] = useState<Set<string>>(new Set())
 
-  // ---------------------------
-  // Fetchers
-  // ---------------------------
+  const rosterDate = todayKeyEST()
+
+  // -------- Load students (active only)
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
-      .select('id,first_name,last_name,approved_pickups,school,active,room_id,school_year')
+      .select('id, first_name, last_name, approved_pickups, school, active, room_id, school_year')
+      .eq('active', true)
       .order('last_name', { ascending: true })
-    if (error) throw error
+      .order('first_name', { ascending: true })
+
+    if (error) {
+      console.warn('[students] load error', error)
+      return
+    }
     setStudents((data ?? []) as StudentRow[])
   }, [])
 
-  const fetchTodayRoster = useCallback(async () => {
-    const today = todayKeyEST()
-
-    // 1) Load today's roster (with count)
-    let { data, error, count } = await supabase
+  // -------- Load today’s roster_status
+  const fetchRoster = useCallback(async () => {
+    const { data, error } = await supabase
       .from('roster_status')
-      .select('student_id,current_status', { count: 'exact' })
-      .eq('roster_date', today)
+      .select('student_id,current_status,last_update')
+      .eq('roster_date', rosterDate)
 
-    if (error) throw error
-
-    // 2) If empty, seed once, then refetch
-    if ((count ?? (data?.length ?? 0)) === 0) {
-      const { error: seedErr } = await supabase.rpc('api_seed_today_if_empty')
-      if (!seedErr) {
-        const retry = await supabase
-          .from('roster_status')
-          .select('student_id,current_status')
-          .eq('roster_date', today)
-        data = retry.data
-      } else {
-        console.error('Seed error:', seedErr.message)
-      }
+    if (error) {
+      console.warn('[roster_status] load error', error)
+      return
     }
-
-    // 3) Apply auto-skip for students whose no_bus_days includes today
-    const { error: applyErr } = await supabase.rpc('api_apply_auto_skip_today')
-    if (applyErr) {
-      console.error('Apply auto-skip error:', applyErr.message)
-    } else {
-      // 4) Refetch once to reflect any updates made by the RPC
-      const retry = await supabase
-        .from('roster_status')
-        .select('student_id,current_status')
-        .eq('roster_date', today)
-      data = retry.data
-    }
-
     const map: Record<string, Status> = {}
-    ;(data || []).forEach((r: any) => (map[r.student_id] = r.current_status as Status))
+    const times: Record<string, string> = {}
+    ;(data ?? []).forEach((r: any) => {
+      map[r.student_id] = r.current_status as Status
+      if (r.last_update) times[r.student_id] = r.last_update
+    })
     setRoster(map)
-  }, [])
+    setRosterTimes(times)
+  }, [rosterDate])
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      await Promise.all([fetchStudents(), fetchTodayRoster()])
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
+  // -------- Load logs to infer previous queue for “Undo” (arrived -> picked/not_picked)
+  const fetchPickedLogToday = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('logs')
+      .select('student_id,action,roster_date')
+      .eq('roster_date', rosterDate)
+      .eq('action', 'picked')
+    if (error) {
+      console.warn('[logs] load error', error)
+      return
     }
-  }, [fetchStudents, fetchTodayRoster])
+    const ids = new Set<string>()
+    ;(data ?? []).forEach((r: any) => ids.add(r.student_id))
+    setPickedEverToday(ids)
+  }, [rosterDate])
 
-  // ---------------------------
-  // Auth gate
-  // ---------------------------
-  useEffect(() => {
-    let mounted = true
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return
-      setHasSession(!!data.session)
-      setSessionReady(true)
-    })
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
-      setHasSession(!!sess)
-      if (sess) loadAll()
-      else {
-        setStudents([])
-        setRoster({})
-      }
-    })
-    return () => { mounted = false; sub.subscription.unsubscribe() }
-  }, [loadAll])
+  // -------- One-shot refresh
+  const refetchAll = useCallback(async () => {
+    await Promise.all([fetchStudents(), fetchRoster(), fetchPickedLogToday()])
+  }, [fetchStudents, fetchRoster, fetchPickedLogToday])
 
   useEffect(() => {
-    if (sessionReady && hasSession) loadAll()
-    else if (sessionReady && !hasSession) setLoading(false)
-  }, [sessionReady, hasSession, loadAll])
+    refetchAll()
+  }, [refetchAll])
 
-  // ---------------------------
-  // Realtime (no server-side filter; client filters by EST)
-  // ---------------------------
-  useRealtimeRoster(setRoster, fetchTodayRoster)
-
-  // ---------------------------
-  // Single source of truth for status changes
-  // ---------------------------
+  // -------- Persist a status change, then refresh maps
   const setStatusPersist = useCallback(
-    async (
-      id: string,
-      newStatus: Status,
-      meta?: { pickup_person?: string | null; [k: string]: any }
-    ) => {
-      const today = todayKeyEST()
-      const prev = roster[id] ?? 'not_picked'
-      const { error } = await supabase.rpc('api_set_status', {
-        p_student_id: id,
-        p_roster_date: today,
-        p_new_status: newStatus,
-        p_pickup_person: meta?.pickup_person ?? null,
-        p_meta: { source: 'ui', prev_status: prev, ...meta }
-      })
-      if (error) {
-        alert(error.message)
-        return
+    async (studentId: string, st: Status, meta?: any) => {
+      // Optimistic update
+      setRoster(prev => ({ ...prev, [studentId]: st }))
+
+      try {
+        // Preferred RPC if available
+        const { error } = await supabase.rpc('api_set_status', {
+          p_student_id: studentId,
+          p_new_status: st,
+          p_meta: meta ?? null,
+        })
+        if (error) {
+          console.warn('[rpc api_set_status] error; falling back to direct upsert', error)
+          // Fallback: upsert roster_status (requires RLS allowing this)
+          const { error: upErr } = await supabase
+            .from('roster_status')
+            .upsert({
+              roster_date: rosterDate,
+              student_id: studentId,
+              current_status: st,
+              last_update: new Date().toISOString(),
+            })
+          if (upErr) console.error('[roster_status upsert] error', upErr)
+        }
+      } catch (e) {
+        console.error('[api_set_status] exception', e)
       }
-      // Optimistic update; Realtime will also confirm
-      setRoster((prevMap) => ({ ...prevMap, [id]: newStatus }))
+
+      await Promise.all([fetchRoster(), fetchPickedLogToday()])
     },
-    [roster]
+    [rosterDate, fetchRoster, fetchPickedLogToday]
   )
 
-  // ---------------------------
-  // Manual daily reset (EST)
-  // ---------------------------
-  async function resetToday() {
-  if (!confirm('Reset today (EST) with no-bus auto-skip applied?')) return
-  const { error } = await supabase.rpc('api_reset_today_apply_nobus')
-  if (error) { alert(error.message); return }
-  await fetchTodayRoster() // refresh UI
-  alert('Reset complete for today (EST). No-bus auto-skip applied.')
-}
+  // -------- Daily Reset (optional RPC)
+  const onDailyReset = useCallback(async () => {
+    try {
+      const { error } = await supabase.rpc('api_daily_reset')
+      if (error) console.warn('[rpc api_daily_reset] missing?', error)
+    } catch (e) {
+      console.warn('[rpc api_daily_reset] exception', e)
+    }
+    await refetchAll()
+  }, [refetchAll])
 
-
-  async function logout() {
+  const onLogout = useCallback(async () => {
     await supabase.auth.signOut()
-  }
+    location.reload()
+  }, [])
 
+  // -------- Single Undo inference for Checkout panel
+  const inferPrevStatus = useCallback(
+    (s: StudentRow): 'picked' | 'not_picked' => {
+      // If the student was picked at any point today, send them back to "picked" (bus queue).
+      // Otherwise, send back to "not_picked" (direct check-in).
+      return pickedEverToday.has(s.id) ? 'picked' : 'not_picked'
+    },
+    [pickedEverToday]
+  )
 
-  const Nav = useMemo(() => (
-    <div className="card" style={{ marginBottom: 12 }}>
-      <div className="row spread">
-        <div className="row">
-          <button className={'btn ' + (page==='bus'?'primary':'')} onClick={() => setPage('bus')}>Bus</button>
-          <button className={'btn ' + (page==='center'?'primary':'')} onClick={() => setPage('center')}>Center</button>
-          <button className={'btn ' + (page==='skip'?'primary':'')} onClick={() => setPage('skip')}>Skip</button>
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          <div className="muted">Sunny Days — {todayKeyEST()}</div>
-          {hasSession && (
-            <>
-              <button className="btn" onClick={resetToday}>Daily Reset</button>
-              <button className="btn" onClick={logout}>Logout</button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  ), [page, hasSession])
-
-  if (!sessionReady) {
-    return (
-      <div className="container">
-        {Nav}
-        <div className="card">Checking session…</div>
-      </div>
-    )
-  }
-  if (!hasSession) return <Login />
-  if (loading) {
-    return (
-      <div className="container">
-        {Nav}
-        <div className="card">Loading…</div>
-      </div>
-    )
-  }
+  // -------- Header date (EST)
+  const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
   return (
     <div className="container">
-      {Nav}
+      {/* Top Nav */}
+      <div className="row gap wrap" style={{ marginBottom: 8 }}>
+        <div className="seg">
+          <button className={'seg-btn' + (page === 'bus' ? ' on' : '')} onClick={() => setPage('bus')}>Bus</button>
+          <button className={'seg-btn' + (page === 'center' ? ' on' : '')} onClick={() => setPage('center')}>Center</button>
+          <button className={'seg-btn' + (page === 'skip' ? ' on' : '')} onClick={() => setPage('skip')}>Skip</button>
+        </div>
+        <div className="grow" />
+        <div className="row gap">
+          <div className="muted">Sunny Days — {estHeaderDate}</div>
+          <button className="btn" onClick={onDailyReset}>Daily Reset</button>
+          <button className="btn" onClick={onLogout}>Logout</button>
+        </div>
+      </div>
+
+      {/* Pages */}
       {page === 'bus' && (
-        <BusPage students={students} roster={roster} onSet={setStatusPersist} />
+        <BusPage
+          students={students}
+          roster={roster}
+          rosterTimes={rosterTimes}          // <-- timestamps wired (shows EST time on pages)
+          onSet={setStatusPersist}
+        />
       )}
       {page === 'center' && (
-        <CenterPage students={students} roster={roster} onSet={setStatusPersist} />
+        <CenterPage 
+          students={students}
+          roster={roster}
+          rosterTimes={rosterTimes}          // <-- timestamps wired (shows EST time)
+          onSet={setStatusPersist}
+          inferPrevStatus={inferPrevStatus}  // <-- single Undo on Checkout
+        />
       )}
       {page === 'skip' && (
-        <SkipPage students={students} roster={roster} onSet={setStatusPersist} />
+        <SkipPage
+          students={students}
+          roster={roster}
+          rosterTimes={rosterTimes}
+          onSet={setStatusPersist}
+        />
       )}
     </div>
   )
