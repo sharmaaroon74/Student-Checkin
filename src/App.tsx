@@ -23,25 +23,25 @@ export default function App() {
   const [roster, setRoster] = useState<Record<string, Status>>({})
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
   const [pickedEverToday, setPickedEverToday] = useState<Set<string>>(new Set())
-
-  // track per-student in-flight writes (to show tiny "saving..." indicator)
   const [saving, setSaving] = useState<Record<string, boolean>>({})
 
   const rosterDate = todayKeyEST()
 
-  // ---------- Load students (active-only)
+  // ---------- Load students (RLS-resilient; no active filter for now)
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
       .select('id, first_name, last_name, approved_pickups, school, active, room_id, school_year')
-      .eq('active', true)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true })
 
     if (error) {
       console.warn('[students] load error', error)
-      alert('Failed to load students. Check console for details.')
+      alert('Failed to load students (RLS/policy issue). Open console for details.')
       return
+    }
+    if (!data || data.length === 0) {
+      console.warn('[students] 0 rows returned. Possible RLS block or empty table.')
     }
     setStudents((data ?? []) as StudentRow[])
   }, [])
@@ -55,7 +55,7 @@ export default function App() {
 
     if (error) {
       console.warn('[roster_status] load error', error)
-      alert('Failed to load roster. Check console for details.')
+      alert('Failed to load roster (RLS/policy issue). See console.')
       return
     }
     const map: Record<string, Status> = {}
@@ -68,7 +68,7 @@ export default function App() {
     setRosterTimes(times)
   }, [rosterDate])
 
-  // ---------- Load logs to infer previous queue for Checkout "Undo"
+  // ---------- Logs to infer previous queue for Checkout "Undo"
   const fetchPickedLogToday = useCallback(async () => {
     const { data, error } = await supabase
       .from('logs')
@@ -77,8 +77,7 @@ export default function App() {
       .eq('action', 'picked')
 
     if (error) {
-      console.warn('[logs] load error', error)
-      // Non-critical; don't alert here
+      console.warn('[logs] load error (non-critical)', error)
       return
     }
     const ids = new Set<string>()
@@ -95,14 +94,15 @@ export default function App() {
     refetchAll()
   }, [refetchAll])
 
-  // ---------- Persist a status change (NO optimistic write), then refresh from server
+  // ---------- Persist status (NO optimistic write), then refresh from server
   const setStatusPersist = useCallback(
     async (studentId: string, st: Status, meta?: any) => {
+      if (!studentId) return
       setSaving(prev => ({ ...prev, [studentId]: true }))
       let wrote = false
 
       try {
-        // Preferred RPC that logs + upserts (if you created it)
+        // Preferred path: secure RPC (security definer)
         const { error: rpcErr } = await supabase.rpc('api_set_status', {
           p_student_id: studentId,
           p_new_status: st,
@@ -112,7 +112,7 @@ export default function App() {
         if (rpcErr) {
           console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
 
-          // Fallback: direct upsert (requires RLS policies for insert/update on roster_status)
+          // Fallback path: direct upsert (requires RLS insert/update on roster_status)
           const { error: upErr } = await supabase
             .from('roster_status')
             .upsert({
@@ -146,7 +146,6 @@ export default function App() {
       if (wrote) {
         await Promise.all([fetchRoster(), fetchPickedLogToday()])
       } else {
-        // Even on failure, refresh to ensure UI matches DB
         await fetchRoster()
       }
     },
@@ -164,9 +163,15 @@ export default function App() {
     await refetchAll()
   }, [refetchAll])
 
+  // ---------- Hard logout (clear stale tokens)
   const onLogout = useCallback(async () => {
-    await supabase.auth.signOut()
-    location.reload()
+    try { await supabase.auth.signOut() } catch {}
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('sb-')) localStorage.removeItem(k)
+      })
+    } catch {}
+    window.location.replace('/')
   }, [])
 
   // ---------- Single Undo inference for Checkout panel
@@ -180,10 +185,9 @@ export default function App() {
   // ---------- Header date (EST)
   const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
-  // ---------- Action wrapper to pass saving state to pages (optional visual)
+  // ---------- Action wrapper to prevent double-click storms
   const onSet = useCallback(
     (id: string, st: Status, meta?: any) => {
-      // Prevent double-click storms
       if (saving[id]) return
       setStatusPersist(id, st, meta)
     },
@@ -204,7 +208,7 @@ export default function App() {
           <div className="muted">Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
-          <div className="muted" style={{marginLeft:8}}>build: no-optimistic+alerts</div>
+          <div className="muted" style={{ marginLeft: 8 }}>build: debug/rls-safe</div>
         </div>
       </div>
 
