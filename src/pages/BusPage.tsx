@@ -5,6 +5,8 @@ type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
   onSet: (id: string, st: Status, meta?: any) => void
+  /** optional: ISO timestamp per student (e.g., roster_status.last_update) */
+  rosterTimes?: Record<string, string>
 }
 
 const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
@@ -12,10 +14,36 @@ type SchoolFilter = typeof SCHOOLS[number]
 const SORTS = ['First Name', 'Last Name'] as const
 type SortKey = typeof SORTS[number]
 
-export default function BusPage({ students, roster, onSet }: Props) {
+const fmtEST = (iso?: string) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const est = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  let h = est.getHours()
+  const m = est.getMinutes().toString().padStart(2, '0')
+  const ampm = h >= 12 ? 'pm' : 'am'
+  h = h % 12 || 12
+  return `${h}:${m}${ampm}`
+}
+
+const statusText = (st: Status, t?: string) => {
+  switch (st) {
+    case 'picked': return `Picked${t ? ` : ${t}` : ''}`
+    case 'arrived': return `Arrived${t ? ` : ${t}` : ''}`
+    case 'checked': return `Checked Out${t ? ` : ${t}` : ''}`
+    case 'skipped': return 'Skipped'
+    default: return 'Not Picked'
+  }
+}
+
+export default function BusPage({ students, roster, onSet, rosterTimes }: Props) {
   const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortKey>('First Name')
+
+  const setStatus = (id: string, st: Status, meta?: any) => {
+    onSet(id, st, meta)
+    setQ('') // ✨ clear search after any action
+  }
 
   const norm = (s: string) => s.toLowerCase().trim()
   const matches = (s: StudentRow) => {
@@ -39,11 +67,13 @@ export default function BusPage({ students, roster, onSet }: Props) {
   )
 
   function CardRow({ s, right }: { s: StudentRow; right: React.ReactNode }) {
+    const st = roster[s.id] ?? 'not_picked'
+    const t = fmtEST(rosterTimes?.[s.id])
     return (
       <div className="row card-row">
         <div className="grow">
           <div className="name">{s.first_name} {s.last_name}</div>
-          <div className="sub">School: {s.school}</div>
+          <div className="sub">School: {s.school} | {statusText(st, t)}</div>
         </div>
         <div className="actions">{right}</div>
       </div>
@@ -81,7 +111,6 @@ export default function BusPage({ students, roster, onSet }: Props) {
 
       {/* Two columns */}
       <div className="columns">
-        {/* Left: Bus Pickup */}
         <div className="subcard">
           <h3 className="section-title">Bus Pickup</h3>
           {toPickup.length === 0 ? (
@@ -92,14 +121,13 @@ export default function BusPage({ students, roster, onSet }: Props) {
                 <CardRow
                   key={s.id}
                   s={s}
-                  right={<button className="btn primary" onClick={() => onSet(s.id, 'picked')}>Pick</button>}
+                  right={<button className="btn primary" onClick={() => setStatus(s.id, 'picked')}>Pick</button>}
                 />
               ))}
             </div>
           )}
         </div>
 
-        {/* Right: Skipped Today */}
         <div className="subcard">
           <h3 className="section-title">Skipped Today</h3>
           {skippedToday.length === 0 ? (
@@ -110,7 +138,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
                 <CardRow
                   key={s.id}
                   s={s}
-                  right={<button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>}
+                  right={<button className="btn" onClick={() => setStatus(s.id, 'not_picked')}>Undo</button>}
                 />
               ))}
             </div>
