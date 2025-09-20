@@ -6,7 +6,15 @@ type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
   onSet: (id: string, st: Status, meta?: any) => void
+  /** Map: student_id -> ISO timestamp (e.g., roster_status.last_update) */
   rosterTimes?: Record<string, string>
+  /**
+   * Optional: decide prior queue for "Undo" from Checkout.
+   * Return 'picked' to send back to Center Check-in (from Bus),
+   * or 'not_picked' to send back to Direct Check-in.
+   * If omitted, we default to 'not_picked'.
+   */
+  inferPrevStatus?: (s: StudentRow) => ('picked' | 'not_picked')
 }
 
 const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
@@ -15,6 +23,7 @@ const SORTS = ['First Name', 'Last Name'] as const
 type SortKey = typeof SORTS[number]
 type Tab = 'in' | 'out'
 
+/** render short time in EST like 12:32pm */
 const fmtEST = (iso?: string) => {
   if (!iso) return ''
   const d = new Date(iso)
@@ -25,13 +34,14 @@ const fmtEST = (iso?: string) => {
   h = h % 12 || 12
   return `${h}:${m}${ampm}`
 }
+
 const statusText = (st: Status, t?: string) => {
   switch (st) {
-    case 'picked': return `Picked${t ? ` : ${t}` : ''}`
+    case 'picked':  return `Picked${t ? ` : ${t}` : ''}`
     case 'arrived': return `Arrived${t ? ` : ${t}` : ''}`
     case 'checked': return `Checked Out${t ? ` : ${t}` : ''}`
     case 'skipped': return 'Skipped'
-    default: return 'Not Picked'
+    default:        return 'Not Picked'
   }
 }
 
@@ -96,7 +106,9 @@ function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
   )
 }
 
-export default function CenterPage({ students, roster, onSet, rosterTimes }: Props) {
+export default function CenterPage({
+  students, roster, onSet, rosterTimes, inferPrevStatus,
+}: Props) {
   const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortKey>('First Name')
@@ -105,7 +117,7 @@ export default function CenterPage({ students, roster, onSet, rosterTimes }: Pro
 
   const setStatus = (id: string, st: Status, meta?: any) => {
     onSet(id, st, meta)
-    setQ('') // ✨ clear search after any action
+    setQ('') // clear search after any action
   }
 
   const norm = (s: string) => s.toLowerCase().trim()
@@ -120,12 +132,13 @@ export default function CenterPage({ students, roster, onSet, rosterTimes }: Pro
       ? a.first_name.localeCompare(b.first_name) || a.last_name.localeCompare(b.last_name)
       : a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
 
+  // from Bus: only picked
   const centerCheckinFromBus = useMemo(
     () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'picked' && matches(s)).sort(cmp),
     [students, roster, school, q, sortBy]
   )
 
-  // not picked, not skipped, not arrived, not checked
+  // Direct: not picked, not skipped, not arrived, not checked
   const directCheckin = useMemo(
     () => students.filter(s => {
       const st = roster[s.id] ?? 'not_picked'
@@ -145,7 +158,7 @@ export default function CenterPage({ students, roster, onSet, rosterTimes }: Pro
 
   function CardRow({ s, right }: { s: StudentRow; right: React.ReactNode }) {
     const st = roster[s.id] ?? 'not_picked'
-    const t = fmtEST(rosterTimes?.[s.id])
+    const t  = fmtEST(rosterTimes?.[s.id])
     return (
       <div className="row card-row">
         <div className="grow">
@@ -234,7 +247,7 @@ export default function CenterPage({ students, roster, onSet, rosterTimes }: Pro
           </div>
         </div>
       ) : (
-        // Checkout tab: two columns side-by-side
+        // Checkout tab: two columns side-by-side; single Undo button
         <div className="columns">
           <div className="subcard">
             <h3 className="section-title">Checkout</h3>
@@ -246,7 +259,20 @@ export default function CenterPage({ students, roster, onSet, rosterTimes }: Pro
                   <CardRow
                     key={s.id}
                     s={s}
-                    right={<button className="btn primary" onClick={() => setCheckingOut(s)}>Checkout</button>}
+                    right={
+                      <div className="row gap">
+                        <button className="btn primary" onClick={() => setCheckingOut(s)}>Checkout</button>
+                        <button
+                          className="btn"
+                          onClick={() => {
+                            const prev = (inferPrevStatus ? inferPrevStatus(s) : 'not_picked')
+                            setStatus(s.id, prev)
+                          }}
+                        >
+                          Undo
+                        </button>
+                      </div>
+                    }
                   />
                 ))}
               </div>
@@ -263,11 +289,7 @@ export default function CenterPage({ students, roster, onSet, rosterTimes }: Pro
                   <CardRow
                     key={s.id}
                     s={s}
-                    right={
-                      <button className="btn" onClick={() => setStatus(s.id, 'arrived')}>
-                        Move to Arrived
-                      </button>
-                    }
+                    right={<span className="muted">Checked-out</span>}
                   />
                 ))}
               </div>
