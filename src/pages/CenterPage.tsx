@@ -11,14 +11,13 @@ const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
 type SchoolFilter = typeof SCHOOLS[number]
 
 export default function CenterPage({ students, roster, onSet }: Props) {
+  // SINGLE-SELECT school filter
   const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
 
   const norm = (s: string) => s.toLowerCase().trim()
   const matches = (s: StudentRow) => {
-    const hit =
-      norm(s.first_name).includes(norm(q)) ||
-      norm(s.last_name).includes(norm(q))
+    const hit = norm(s.first_name).includes(norm(q)) || norm(s.last_name).includes(norm(q))
     if (!hit) return false
     if (school === 'All') return true
     return s.school === school
@@ -45,13 +44,13 @@ export default function CenterPage({ students, roster, onSet }: Props) {
     [students, roster, school, q]
   )
 
-  function CardRow({
-    s,
-    children,
-  }: {
-    s: StudentRow
-    children: React.ReactNode
-  }) {
+  // Checked Out: checked
+  const checkedOut = useMemo(
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'checked' && matches(s)),
+    [students, roster, school, q]
+  )
+
+  function CardRow({ s, children }: { s: StudentRow; children: React.ReactNode }) {
     return (
       <div className="row card-row">
         <div className="grow">
@@ -96,7 +95,7 @@ export default function CenterPage({ students, roster, onSet }: Props) {
         </div>
       )}
 
-      {/* Direct Check-in (No Bus) */}
+      {/* Direct Check-in (No Bus) — NO UNDO */}
       <h3 className="section-title" style={{ marginTop: 18 }}>Direct Check-in (No Bus)</h3>
       {directCheckin.length === 0 ? (
         <div className="muted">No students available for direct check-in.</div>
@@ -105,7 +104,7 @@ export default function CenterPage({ students, roster, onSet }: Props) {
           {directCheckin.map(s => (
             <CardRow key={s.id} s={s}>
               <button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>
-              <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>
+              {/* Undo intentionally removed */}
             </CardRow>
           ))}
         </div>
@@ -120,7 +119,23 @@ export default function CenterPage({ students, roster, onSet }: Props) {
           {checkoutQueue.map(s => (
             <CardRow key={s.id} s={s}>
               <button className="btn primary" onClick={() => onSet(s.id, 'checked')}>Checkout</button>
+              {/* Keep Undo here (goes back to picked) since you didn't request its removal */}
               <button className="btn" onClick={() => onSet(s.id, 'picked')}>Undo</button>
+            </CardRow>
+          ))}
+        </div>
+      )}
+
+      {/* Checked Out — NO UNDO */}
+      <h3 className="section-title" style={{ marginTop: 18 }}>Checked Out</h3>
+      {checkedOut.length === 0 ? (
+        <div className="muted">No students checked out.</div>
+      ) : (
+        <div className="list">
+          {checkedOut.map(s => (
+            <CardRow key={s.id} s={s}>
+              {/* No buttons here per request */}
+              <span className="muted">Checked-out</span>
             </CardRow>
           ))}
         </div>

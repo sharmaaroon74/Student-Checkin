@@ -16,9 +16,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
 
   const norm = (s: string) => s.toLowerCase().trim()
   const matches = (s: StudentRow) => {
-    const hit =
-      norm(s.first_name).includes(norm(q)) ||
-      norm(s.last_name).includes(norm(q))
+    const hit = norm(s.first_name).includes(norm(q)) || norm(s.last_name).includes(norm(q))
     if (!hit) return false
     if (school === 'All') return true
     return s.school === school
@@ -34,13 +32,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
     [students, roster, school, q]
   )
 
-  function CardRow({
-    s,
-    children,
-  }: {
-    s: StudentRow
-    children: React.ReactNode
-  }) {
+  function CardRow({ s, children }: { s: StudentRow; children: React.ReactNode }) {
     return (
       <div className="row card-row">
         <div className="grow">
@@ -69,7 +61,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
         />
       </div>
 
-      {/* BUS PICKUP (no Skip button) */}
+      {/* BUS PICKUP — no Skip button */}
       <h3 className="section-title">Bus Pickup</h3>
       {toPickup.length === 0 ? (
         <div className="muted">No students to pick up.</div>
@@ -78,16 +70,13 @@ export default function BusPage({ students, roster, onSet }: Props) {
           {toPickup.map(s => (
             <CardRow key={s.id} s={s}>
               <button className="btn primary" onClick={() => onSet(s.id, 'picked')}>Pick</button>
-              {/* Skip removed by request */}
-              {/* If you currently show Undo here and want to keep it, leave it;
-                  otherwise remove this button */}
-              {/* <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button> */}
+              {/* Skip intentionally removed */}
             </CardRow>
           ))}
         </div>
       )}
 
-      {/* SKIPPED TODAY (no Pick button) */}
+      {/* SKIPPED TODAY — no Pick button (Undo stays) */}
       <h3 className="section-title" style={{ marginTop: 18 }}>Skipped Today</h3>
       {skippedToday.length === 0 ? (
         <div className="muted">No skipped students.</div>
@@ -95,9 +84,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
         <div className="list">
           {skippedToday.map(s => (
             <CardRow key={s.id} s={s}>
-              {/* Pick removed by request */}
-              {/* Keep Undo if you want staff to unskip;
-                  clicking Undo moves back to not_picked */}
+              {/* Pick intentionally removed */}
               <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>
             </CardRow>
           ))}
