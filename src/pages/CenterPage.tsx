@@ -10,6 +10,8 @@ type Props = {
 
 const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
 type SchoolFilter = typeof SCHOOLS[number]
+const SORTS = ['First Name', 'Last Name'] as const
+type SortKey = typeof SORTS[number]
 type Tab = 'in' | 'out'
 
 type CheckoutModalProps = {
@@ -59,11 +61,7 @@ function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
           </div>
 
           <div className="label">Admin Override</div>
-          <input
-            placeholder="Type full name"
-            value={override}
-            onChange={e => setOverride(e.target.value)}
-          />
+          <input placeholder="Type full name" value={override} onChange={e => setOverride(e.target.value)} />
 
           <div className="label" style={{ marginTop: 8 }}>Pickup time (EST)</div>
           <input type="datetime-local" value={timeISO} onChange={e => setTimeISO(e.target.value)} />
@@ -80,6 +78,7 @@ function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
 export default function CenterPage({ students, roster, onSet }: Props) {
   const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
+  const [sortBy, setSortBy] = useState<SortKey>('First Name')
   const [tab, setTab] = useState<Tab>('in')
   const [checkingOut, setCheckingOut] = useState<StudentRow | null>(null)
 
@@ -90,28 +89,34 @@ export default function CenterPage({ students, roster, onSet }: Props) {
     if (school === 'All') return true
     return s.school === school
   }
+  const cmp = (a: StudentRow, b: StudentRow) =>
+    sortBy === 'First Name'
+      ? a.first_name.localeCompare(b.first_name) || a.last_name.localeCompare(b.last_name)
+      : a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
 
+  // from Bus: only picked
   const centerCheckinFromBus = useMemo(
-    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'picked' && matches(s)),
-    [students, roster, school, q]
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'picked' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
   )
 
+  // Direct: not picked, not skipped, not arrived, not checked
   const directCheckin = useMemo(
     () => students.filter(s => {
       const st = roster[s.id] ?? 'not_picked'
-      return st !== 'picked' && st !== 'skipped' && matches(s)
-    }),
-    [students, roster, school, q]
+      return st !== 'picked' && st !== 'skipped' && st !== 'arrived' && st !== 'checked' && matches(s)
+    }).sort(cmp),
+    [students, roster, school, q, sortBy]
   )
 
+  // Checkout / Checked Out
   const checkoutQueue = useMemo(
-    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'arrived' && matches(s)),
-    [students, roster, school, q]
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'arrived' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
   )
-
   const checkedOut = useMemo(
-    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'checked' && matches(s)),
-    [students, roster, school, q]
+    () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'checked' && matches(s)).sort(cmp),
+    [students, roster, school, q, sortBy]
   )
 
   function CardRow({ s, right }: { s: StudentRow; right: React.ReactNode }) {
@@ -128,13 +133,18 @@ export default function CenterPage({ students, roster, onSet }: Props) {
 
   return (
     <div className="card">
-      {/* Filters */}
+      {/* Page-level filters */}
       <div className="row wrap gap" style={{ marginBottom: 8 }}>
-        <div className="row gap">
-          <label className="label">School</label>
-          <select value={school} onChange={e => setSchool(e.target.value as SchoolFilter)}>
-            {SCHOOLS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+        <div className="seg">
+          {SCHOOLS.map(s => (
+            <button
+              key={s}
+              className={'seg-btn' + (school === s ? ' on' : '')}
+              onClick={() => setSchool(s)}
+            >
+              {s}
+            </button>
+          ))}
         </div>
         <input
           value={q}
@@ -142,6 +152,12 @@ export default function CenterPage({ students, roster, onSet }: Props) {
           placeholder="Search student…"
           style={{ minWidth: 220 }}
         />
+        <div className="row gap">
+          <label className="label">Sort</label>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}>
+            {SORTS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -151,7 +167,6 @@ export default function CenterPage({ students, roster, onSet }: Props) {
       </div>
 
       {tab === 'in' ? (
-        /* Two columns: Check-in */
         <div className="columns">
           <div className="subcard">
             <h3 className="section-title">Center Check-in (from Bus)</h3>
@@ -193,8 +208,8 @@ export default function CenterPage({ students, roster, onSet }: Props) {
           </div>
         </div>
       ) : (
-        /* Checkout tab */
-        <>
+        // Checkout tab: two columns side-by-side
+        <div className="columns">
           <div className="subcard">
             <h3 className="section-title">Checkout</h3>
             {checkoutQueue.length === 0 ? (
@@ -212,7 +227,7 @@ export default function CenterPage({ students, roster, onSet }: Props) {
             )}
           </div>
 
-          <div className="subcard" style={{ marginTop: 12 }}>
+          <div className="subcard">
             <h3 className="section-title">Checked Out</h3>
             {checkedOut.length === 0 ? (
               <div className="muted">No students checked out.</div>
@@ -231,14 +246,11 @@ export default function CenterPage({ students, roster, onSet }: Props) {
             onClose={() => setCheckingOut(null)}
             onConfirm={(pickupPerson, pickedAtISO) => {
               if (!checkingOut) return
-              onSet(checkingOut.id, 'checked', {
-                pickup_person: pickupPerson,
-                picked_at: pickedAtISO,
-              })
+              onSet(checkingOut.id, 'checked', { pickup_person: pickupPerson, picked_at: pickedAtISO })
               setCheckingOut(null)
             }}
           />
-        </>
+        </div>
       )}
     </div>
   )
