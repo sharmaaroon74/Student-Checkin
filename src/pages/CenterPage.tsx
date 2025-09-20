@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import type { StudentRow, Status } from '../types'
-import { toESTLocalISO } from '../utils/time' // helper we’ll define below if you don’t already have one
+import { toESTLocalISO } from '../utils/time'
 
 type Props = {
   students: StudentRow[]
@@ -10,6 +10,7 @@ type Props = {
 
 const SCHOOLS = ['All', 'Bain', 'QG', 'MHE', 'MC'] as const
 type SchoolFilter = typeof SCHOOLS[number]
+type Tab = 'in' | 'out'
 
 type CheckoutModalProps = {
   student: StudentRow | null
@@ -19,11 +20,9 @@ type CheckoutModalProps = {
 
 function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
   if (!student) return null
-
   const [override, setOverride] = useState('')
   const [timeISO, setTimeISO] = useState(toESTLocalISO(new Date()))
   const [selected, setSelected] = useState<string | null>(null)
-
   const approved = (student.approved_pickups ?? []) as string[]
 
   function confirm() {
@@ -41,7 +40,7 @@ function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
         </div>
         <div className="modal-body">
           <div className="muted" style={{ marginBottom: 8 }}>
-            Student: <b>{student.first_name} {student.last_name}</b> &nbsp; <span className="sub">({student.school})</span>
+            Student: <b>{student.first_name} {student.last_name}</b> <span className="sub">({student.school})</span>
           </div>
 
           <div className="label" style={{ marginTop: 8 }}>Approved Pickup</div>
@@ -67,11 +66,7 @@ function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
           />
 
           <div className="label" style={{ marginTop: 8 }}>Pickup time (EST)</div>
-          <input
-            type="datetime-local"
-            value={timeISO}
-            onChange={e => setTimeISO(e.target.value)}
-          />
+          <input type="datetime-local" value={timeISO} onChange={e => setTimeISO(e.target.value)} />
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>Cancel</button>
@@ -83,9 +78,9 @@ function CheckoutModal({ student, onClose, onConfirm }: CheckoutModalProps) {
 }
 
 export default function CenterPage({ students, roster, onSet }: Props) {
-  // SINGLE-SELECT school filter
   const [school, setSchool] = useState<SchoolFilter>('All')
   const [q, setQ] = useState('')
+  const [tab, setTab] = useState<Tab>('in')
   const [checkingOut, setCheckingOut] = useState<StudentRow | null>(null)
 
   const norm = (s: string) => s.toLowerCase().trim()
@@ -96,13 +91,11 @@ export default function CenterPage({ students, roster, onSet }: Props) {
     return s.school === school
   }
 
-  // Center Check-in (from Bus): status = picked
   const centerCheckinFromBus = useMemo(
     () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'picked' && matches(s)),
     [students, roster, school, q]
   )
 
-  // Direct Check-in (No Bus): status != picked and != skipped
   const directCheckin = useMemo(
     () => students.filter(s => {
       const st = roster[s.id] ?? 'not_picked'
@@ -111,13 +104,11 @@ export default function CenterPage({ students, roster, onSet }: Props) {
     [students, roster, school, q]
   )
 
-  // Checkout queue: status = arrived
   const checkoutQueue = useMemo(
     () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'arrived' && matches(s)),
     [students, roster, school, q]
   )
 
-  // Checked Out: status = checked
   const checkedOut = useMemo(
     () => students.filter(s => (roster[s.id] ?? 'not_picked') === 'checked' && matches(s)),
     [students, roster, school, q]
@@ -138,7 +129,7 @@ export default function CenterPage({ students, roster, onSet }: Props) {
   return (
     <div className="card">
       {/* Filters */}
-      <div className="row wrap gap">
+      <div className="row wrap gap" style={{ marginBottom: 8 }}>
         <div className="row gap">
           <label className="label">School</label>
           <select value={school} onChange={e => setSchool(e.target.value as SchoolFilter)}>
@@ -153,86 +144,102 @@ export default function CenterPage({ students, roster, onSet }: Props) {
         />
       </div>
 
-      {/* Center Check-in (from Bus) */}
-      <h3 className="section-title">Center Check-in (from Bus)</h3>
-      {centerCheckinFromBus.length === 0 ? (
-        <div className="muted">No students picked yet.</div>
-      ) : (
-        <div className="list">
-          {centerCheckinFromBus.map(s => (
-            <CardRow
-              key={s.id}
-              s={s}
-              right={
-                <>
-                  <button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>
-                  <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>
-                </>
-              }
-            />
-          ))}
-        </div>
-      )}
+      {/* Tabs */}
+      <div className="row gap" style={{ marginBottom: 10 }}>
+        <button className={'btn ' + (tab === 'in' ? 'primary' : '')} onClick={() => setTab('in')}>Check-in</button>
+        <button className={'btn ' + (tab === 'out' ? 'primary' : '')} onClick={() => setTab('out')}>Checkout</button>
+      </div>
 
-      {/* Direct Check-in (No Bus) — NO UNDO */}
-      <h3 className="section-title" style={{ marginTop: 18 }}>Direct Check-in (No Bus)</h3>
-      {directCheckin.length === 0 ? (
-        <div className="muted">No students available for direct check-in.</div>
-      ) : (
-        <div className="list">
-          {directCheckin.map(s => (
-            <CardRow
-              key={s.id}
-              s={s}
-              right={<button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>}
-            />
-          ))}
-        </div>
-      )}
+      {tab === 'in' ? (
+        /* Two columns: Check-in */
+        <div className="columns">
+          <div className="subcard">
+            <h3 className="section-title">Center Check-in (from Bus)</h3>
+            {centerCheckinFromBus.length === 0 ? (
+              <div className="muted">No students picked yet.</div>
+            ) : (
+              <div className="list">
+                {centerCheckinFromBus.map(s => (
+                  <CardRow
+                    key={s.id}
+                    s={s}
+                    right={
+                      <>
+                        <button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>
+                        <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>
+                      </>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
 
-      {/* Checkout */}
-      <h3 className="section-title" style={{ marginTop: 18 }}>Checkout</h3>
-      {checkoutQueue.length === 0 ? (
-        <div className="muted">No students ready for checkout.</div>
-      ) : (
-        <div className="list">
-          {checkoutQueue.map(s => (
-            <CardRow
-              key={s.id}
-              s={s}
-              right={
-                <button className="btn primary" onClick={() => setCheckingOut(s)}>Checkout</button>
-              }
-            />
-          ))}
+          <div className="subcard">
+            <h3 className="section-title">Direct Check-in (No Bus)</h3>
+            {directCheckin.length === 0 ? (
+              <div className="muted">No students available for direct check-in.</div>
+            ) : (
+              <div className="list">
+                {directCheckin.map(s => (
+                  <CardRow
+                    key={s.id}
+                    s={s}
+                    right={<button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
-
-      {/* Checked Out — read-only */}
-      <h3 className="section-title" style={{ marginTop: 18 }}>Checked Out</h3>
-      {checkedOut.length === 0 ? (
-        <div className="muted">No students checked out.</div>
       ) : (
-        <div className="list">
-          {checkedOut.map(s => (
-            <CardRow key={s.id} s={s} right={<span className="muted">Checked-out</span>} />
-          ))}
-        </div>
-      )}
+        /* Checkout tab */
+        <>
+          <div className="subcard">
+            <h3 className="section-title">Checkout</h3>
+            {checkoutQueue.length === 0 ? (
+              <div className="muted">No students ready for checkout.</div>
+            ) : (
+              <div className="list">
+                {checkoutQueue.map(s => (
+                  <CardRow
+                    key={s.id}
+                    s={s}
+                    right={<button className="btn primary" onClick={() => setCheckingOut(s)}>Checkout</button>}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
 
-      {/* Modal */}
-      <CheckoutModal
-        student={checkingOut}
-        onClose={() => setCheckingOut(null)}
-        onConfirm={(pickupPerson, pickedAtISO) => {
-          if (!checkingOut) return
-          onSet(checkingOut.id, 'checked', {
-            pickup_person: pickupPerson,
-            picked_at: pickedAtISO,
-          })
-          setCheckingOut(null)
-        }}
-      />
+          <div className="subcard" style={{ marginTop: 12 }}>
+            <h3 className="section-title">Checked Out</h3>
+            {checkedOut.length === 0 ? (
+              <div className="muted">No students checked out.</div>
+            ) : (
+              <div className="list">
+                {checkedOut.map(s => (
+                  <CardRow key={s.id} s={s} right={<span className="muted">Checked-out</span>} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Modal */}
+          <CheckoutModal
+            student={checkingOut}
+            onClose={() => setCheckingOut(null)}
+            onConfirm={(pickupPerson, pickedAtISO) => {
+              if (!checkingOut) return
+              onSet(checkingOut.id, 'checked', {
+                pickup_person: pickupPerson,
+                picked_at: pickedAtISO,
+              })
+              setCheckingOut(null)
+            }}
+          />
+        </>
+      )}
     </div>
   )
 }

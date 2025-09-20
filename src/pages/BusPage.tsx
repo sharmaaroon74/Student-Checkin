@@ -47,7 +47,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
   return (
     <div className="card">
       {/* Filters */}
-      <div className="row wrap gap">
+      <div className="row wrap gap" style={{ marginBottom: 8 }}>
         <div className="row gap">
           <label className="label">School</label>
           <select value={school} onChange={e => setSchool(e.target.value as SchoolFilter)}>
@@ -62,45 +62,44 @@ export default function BusPage({ students, roster, onSet }: Props) {
         />
       </div>
 
-      {/* BUS PICKUP — Pick only */}
-      <h3 className="section-title">Bus Pickup</h3>
-      {toPickup.length === 0 ? (
-        <div className="muted">No students to pick up.</div>
-      ) : (
-        <div className="list">
-          {toPickup.map(s => (
-            <CardRow
-              key={s.id}
-              s={s}
-              right={
-                <button className="btn primary" onClick={() => onSet(s.id, 'picked')}>
-                  Pick
-                </button>
-              }
-            />
-          ))}
+      {/* Two columns */}
+      <div className="columns">
+        {/* Left column: Bus Pickup (Pick only) */}
+        <div className="subcard">
+          <h3 className="section-title">Bus Pickup</h3>
+          {toPickup.length === 0 ? (
+            <div className="muted">No students to pick up.</div>
+          ) : (
+            <div className="list">
+              {toPickup.map(s => (
+                <CardRow
+                  key={s.id}
+                  s={s}
+                  right={<button className="btn primary" onClick={() => onSet(s.id, 'picked')}>Pick</button>}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* SKIPPED TODAY — Undo only */}
-      <h3 className="section-title" style={{ marginTop: 18 }}>Skipped Today</h3>
-      {skippedToday.length === 0 ? (
-        <div className="muted">No skipped students.</div>
-      ) : (
-        <div className="list">
-          {skippedToday.map(s => (
-            <CardRow
-              key={s.id}
-              s={s}
-              right={
-                <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>
-                  Undo
-                </button>
-              }
-            />
-          ))}
+        {/* Right column: Skipped Today (Undo only) */}
+        <div className="subcard">
+          <h3 className="section-title">Skipped Today</h3>
+          {skippedToday.length === 0 ? (
+            <div className="muted">No skipped students.</div>
+          ) : (
+            <div className="list">
+              {skippedToday.map(s => (
+                <CardRow
+                  key={s.id}
+                  s={s}
+                  right={<button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

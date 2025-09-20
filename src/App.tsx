@@ -203,7 +203,7 @@ export default function App() {
             </>
           )}
         </div>
-        <div className="muted" style={{marginLeft:8}}>build: 2025-09-20-d</div>
+        <div className="muted" style={{marginLeft:8}}>build: 2025-09-20-e</div>
       </div>
     </div>
   ), [page, hasSession])
