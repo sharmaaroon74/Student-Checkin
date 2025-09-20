@@ -58,6 +58,7 @@ function StudentRowCard({
   )
 }
 
+/** Centered modal with fixed max width; header + absolute close btn */
 function Modal({
   open,
   title,
@@ -71,25 +72,33 @@ function Modal({
 }) {
   if (!open) return null
   return (
-    <div className="fixed-overlay">
-      <div className="modal">
-        <div className="row between" style={{ marginBottom: 12 }}>
-          <div className="title">{title}</div>
-          <button className="btn" onClick={onClose}>✕</button>
-        </div>
-        {children}
+    <div className="sd-overlay">
+      <div className="sd-modal">
+        <button className="sd-close" onClick={onClose} aria-label="Close">✕</button>
+        <h3 className="sd-title">{title}</h3>
+        <div className="sd-body">{children}</div>
       </div>
       <style>{`
-        .fixed-overlay{
-          position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+        .sd-overlay{
+          position:fixed; inset:0; background:rgba(0,0,0,0.45);
           display:flex; align-items:center; justify-content:center; z-index:9999;
-          padding: 24px;
+          padding:16px;
         }
-        .modal{
-          background:#fff; border-radius:18px; padding:20px;
-          width:min(720px, 92vw); max-height: 88vh; overflow:auto;
+        .sd-modal{
+          position:relative;
+          width:min(600px, 92vw);
+          background:#fff; border-radius:16px; padding:20px 20px 16px;
           box-shadow:0 18px 50px rgba(0,0,0,0.25);
         }
+        .sd-close{
+          position:absolute; top:10px; right:10px;
+          border:1px solid #E5E7EB; background:#fff; border-radius:10px; padding:4px 8px;
+          cursor:pointer;
+        }
+        .sd-title{
+          margin:0 28px 12px 0; font-size:18px; font-weight:600;
+        }
+        .sd-body{ display:block }
         .pill-grid{
           display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr));
           gap:10px;
@@ -98,9 +107,7 @@ function Modal({
           border:1px solid #d1d5db; padding:10px 12px; border-radius:999px;
           background:#fff; cursor:pointer; text-align:left;
         }
-        .pill.on{
-          background:#0b1220; color:#fff; border-color:#0b1220;
-        }
+        .pill.on{ background:#0b1220; color:#fff; border-color:#0b1220; }
       `}</style>
     </div>
   )
@@ -115,7 +122,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
   // checkout modal state
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutStudent, setCheckoutStudent] = useState<StudentRow | null>(null)
-  const [pickupSelect, setPickupSelect] = useState<string>('') // single selection; no default
+  const [pickupSelect, setPickupSelect] = useState<string>('') // no default selection
   const [pickupOther, setPickupOther] = useState<string>('')   // admin override
   const [pickupTime, setPickupTime] = useState<string>(currentTimeEST_HHMM())
 
@@ -136,7 +143,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
 
   const openCheckout = useCallback((s: StudentRow) => {
     setCheckoutStudent(s)
-    setPickupSelect('') // no default selection
+    setPickupSelect('')
     setPickupOther('')
     setPickupTime(currentTimeEST_HHMM())
     setCheckoutOpen(true)
@@ -302,7 +309,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
-                      {/* opens modal */}
                       <button className="btn primary" onClick={() => openCheckout(s)}>Checkout</button>
                       <button
                         className="btn"
@@ -336,7 +342,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         </div>
       )}
 
-      {/* Checkout Modal (centered; pickup chips; EST time) */}
+      {/* Checkout Modal */}
       <Modal
         open={checkoutOpen}
         title={checkoutStudent ? `Checkout — ${nameOf(checkoutStudent)}` : 'Checkout'}
@@ -345,7 +351,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         {checkoutStudent && (
           <div className="col gap">
             <div className="muted" style={{ marginBottom: 6 }}>Approved Pickup</div>
-
             <div className="pill-grid" style={{ marginBottom: 10 }}>
               {(checkoutStudent.approved_pickups ?? []).map((p, idx) => {
                 const active = pickupSelect === p
@@ -381,10 +386,8 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
               </div>
             </div>
 
-            <div className="row gap" style={{ justifyContent: 'flex-end', marginTop: 12 }}>
+            <div className="row gap" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
               <button className="btn" onClick={() => { setCheckoutOpen(false); setCheckoutStudent(null) }}>Cancel</button>
-              {/* As requested: both buttons available with the given labels; both perform the checkout */}
-              <button className="btn" onClick={confirmCheckout}>Save &amp; Checkout</button>
               <button className="btn primary" onClick={confirmCheckout}>Checkout</button>
             </div>
           </div>
