@@ -16,46 +16,67 @@ function todayKeyEST(d = new Date()): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
-/** ---------- Simple Auth UI (email magic link) ---------- */
-function AuthPane() {
+/** ---------- Simple Email/Password Auth UI (no redirects) ---------- */
+function AuthPanePassword() {
   const [email, setEmail] = useState('')
-  const [sending, setSending] = useState(false)
+  const [password, setPassword] = useState('')
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
-  const sendLink = async () => {
-    if (!email) return
-    setSending(true)
-    setMsg(null)
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: window.location.origin, // make sure this URL is in Supabase Auth > Redirect URLs
-      },
-    })
-    setSending(false)
-    if (error) setMsg(`Error: ${error.message}`)
-    else setMsg('Magic link sent! Check your email and click the link to finish sign-in.')
+  const doSignIn = async () => {
+    setBusy(true); setMsg(null)
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    setBusy(false)
+    if (error) setMsg(`Sign in failed: ${error.message}`)
+    // success → auth listener in App will switch UI
+  }
+
+  const doSignUp = async () => {
+    setBusy(true); setMsg(null)
+    // If "Email confirmations" are enabled in Supabase, the user may need to confirm before session is active.
+    const { error } = await supabase.auth.signUp({ email, password })
+    setBusy(false)
+    if (error) setMsg(`Sign up failed: ${error.message}`)
+    else setMsg('Account created. If email confirmations are enabled, check your inbox to confirm.')
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email || !password) { setMsg('Email and password are required'); return }
+    if (mode === 'signin') await doSignIn()
+    else await doSignUp()
   }
 
   return (
     <div className="container" style={{ maxWidth: 520, marginTop: 40 }}>
       <div className="card">
-        <h2 style={{ marginBottom: 12 }}>Sunny Days – Sign in</h2>
-        <p className="muted" style={{ marginBottom: 12 }}>
-          Enter your email and we’ll send you a one-time magic link.
-        </p>
-        <div className="row gap">
+        <h2 style={{ marginBottom: 12 }}>Sunny Days — {mode === 'signin' ? 'Sign In' : 'Create Account'}</h2>
+        <form onSubmit={submit} className="col gap">
           <input
+            type="email"
             placeholder="you@school.org"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ flex: 1 }}
+            autoComplete="username"
           />
-          <button className="btn primary" onClick={sendLink} disabled={sending}>
-            {sending ? 'Sending…' : 'Send Link'}
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+          />
+          <button className="btn primary" type="submit" disabled={busy}>
+            {busy ? (mode === 'signin' ? 'Signing in…' : 'Creating…') : (mode === 'signin' ? 'Sign In' : 'Create Account')}
+          </button>
+        </form>
+        {msg && <div style={{ marginTop: 10 }} className="muted">{msg}</div>}
+        <div className="row gap" style={{ marginTop: 12 }}>
+          <button className="btn" onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
+            {mode === 'signin' ? 'Create an account' : 'Have an account? Sign in'}
           </button>
         </div>
-        {msg && <div style={{ marginTop: 10 }} className="muted">{msg}</div>}
       </div>
     </div>
   )
@@ -64,7 +85,7 @@ function AuthPane() {
 export default function App() {
   const [page, setPage] = useState<Page>('bus')
 
-  const [userId, setUserId] = useState<string | null>(null)         // <— session guard
+  const [userId, setUserId] = useState<string | null>(null)         // auth guard
   const [students, setStudents] = useState<StudentRow[]>([])
   const [roster, setRoster] = useState<Record<string, Status>>({})
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
@@ -158,6 +179,7 @@ export default function App() {
       let wrote = false
 
       try {
+        // Preferred: secure RPC
         const { error: rpcErr } = await supabase.rpc('api_set_status', {
           p_student_id: studentId,
           p_new_status: st,
@@ -166,6 +188,7 @@ export default function App() {
 
         if (rpcErr) {
           console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
+          // Fallback: direct upsert (requires RLS insert/update on roster_status)
           const { error: upErr } = await supabase
             .from('roster_status')
             .upsert({
@@ -174,6 +197,7 @@ export default function App() {
               current_status: st,
               last_update: new Date().toISOString(),
             })
+
           if (upErr) {
             console.error('[roster_status upsert] error', upErr)
             alert(`Failed to save.\n\n${upErr.message || upErr}`)
@@ -221,8 +245,8 @@ export default function App() {
     try {
       Object.keys(localStorage).forEach(k => { if (k.startsWith('sb-')) localStorage.removeItem(k) })
     } catch {}
-    setUserId(null)         // show AuthPane immediately
-    window.location.replace('/') // ensure a clean reload
+    setUserId(null)
+    window.location.replace('/')
   }, [])
 
   const inferPrevStatus = useCallback(
@@ -236,7 +260,7 @@ export default function App() {
 
   /** ---------- If not logged in, show Auth ---------- */
   if (!userId) {
-    return <AuthPane />
+    return <AuthPanePassword />
   }
 
   /** ---------- App UI (logged in) ---------- */
@@ -254,6 +278,7 @@ export default function App() {
           <div className="muted">Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
+          <div className="muted" style={{ marginLeft: 8 }}>build: auth-password</div>
         </div>
       </div>
 
