@@ -60,6 +60,14 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('first')
 
+  // two-column wrapper (guaranteed side-by-side on typical widths)
+  const twoCol: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 16,
+    alignItems: 'start',
+  }
+
   // Clear search whenever we take an action (requested behavior)
   const act = useCallback(
     (id: string, st: Status, meta?: any) => {
@@ -166,7 +174,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
       </div>
 
       {tab === 'in' ? (
-        <div className="grid-2 gap">
+        <div style={twoCol}>
           {/* Left: Center Check-in (from Bus) */}
           <div className="card">
             <h3>Center Check-in (from Bus)</h3>
@@ -208,7 +216,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
           </div>
         </div>
       ) : (
-        <div className="grid-2 gap">
+        <div style={twoCol}>
           {/* Left: Checkout (arrived) */}
           <div className="card">
             <h3>Checkout</h3>
@@ -250,7 +258,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   s={s}
                   subtitle={subtitleFor(s)}
                   actions={
-                    // NEW: Undo on Checked Out panel → move back to Arrived
+                    // Undo on Checked Out panel → move back to Arrived
                     <button className="btn" onClick={() => act(s.id, 'arrived')}>
                       Undo
                     </button>
