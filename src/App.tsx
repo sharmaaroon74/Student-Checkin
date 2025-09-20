@@ -26,7 +26,7 @@ export default function App() {
 
   const rosterDate = todayKeyEST()
 
-  // -------- Load students (active only)
+  // ---------- Load students (active-only)
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
@@ -42,7 +42,7 @@ export default function App() {
     setStudents((data ?? []) as StudentRow[])
   }, [])
 
-  // -------- Load today’s roster_status
+  // ---------- Load today’s roster_status
   const fetchRoster = useCallback(async () => {
     const { data, error } = await supabase
       .from('roster_status')
@@ -63,13 +63,14 @@ export default function App() {
     setRosterTimes(times)
   }, [rosterDate])
 
-  // -------- Load logs to infer previous queue for “Undo” (arrived -> picked/not_picked)
+  // ---------- Load logs to infer previous queue for Checkout "Undo"
   const fetchPickedLogToday = useCallback(async () => {
     const { data, error } = await supabase
       .from('logs')
       .select('student_id,action,roster_date')
       .eq('roster_date', rosterDate)
       .eq('action', 'picked')
+
     if (error) {
       console.warn('[logs] load error', error)
       return
@@ -79,7 +80,7 @@ export default function App() {
     setPickedEverToday(ids)
   }, [rosterDate])
 
-  // -------- One-shot refresh
+  // ---------- One-shot refresh
   const refetchAll = useCallback(async () => {
     await Promise.all([fetchStudents(), fetchRoster(), fetchPickedLogToday()])
   }, [fetchStudents, fetchRoster, fetchPickedLogToday])
@@ -88,22 +89,21 @@ export default function App() {
     refetchAll()
   }, [refetchAll])
 
-  // -------- Persist a status change, then refresh maps
+  // ---------- Persist a status change (NO optimistic write), then refresh from server
   const setStatusPersist = useCallback(
     async (studentId: string, st: Status, meta?: any) => {
-      // Optimistic update
-      setRoster(prev => ({ ...prev, [studentId]: st }))
-
+      let ok = true
       try {
-        // Preferred RPC if available
+        // Preferred RPC that logs + upserts
         const { error } = await supabase.rpc('api_set_status', {
           p_student_id: studentId,
           p_new_status: st,
           p_meta: meta ?? null,
         })
         if (error) {
+          ok = false
           console.warn('[rpc api_set_status] error; falling back to direct upsert', error)
-          // Fallback: upsert roster_status (requires RLS allowing this)
+          // Fallback: direct upsert (requires proper RLS)
           const { error: upErr } = await supabase
             .from('roster_status')
             .upsert({
@@ -112,18 +112,29 @@ export default function App() {
               current_status: st,
               last_update: new Date().toISOString(),
             })
-          if (upErr) console.error('[roster_status upsert] error', upErr)
+          if (upErr) {
+            ok = false
+            console.error('[roster_status upsert] error', upErr)
+          } else {
+            ok = true
+          }
         }
       } catch (e) {
+        ok = false
         console.error('[api_set_status] exception', e)
       }
 
-      await Promise.all([fetchRoster(), fetchPickedLogToday()])
+      // Always reconcile with server as source of truth
+      if (ok) {
+        await Promise.all([fetchRoster(), fetchPickedLogToday()])
+      } else {
+        await fetchRoster()
+      }
     },
     [rosterDate, fetchRoster, fetchPickedLogToday]
   )
 
-  // -------- Daily Reset (optional RPC)
+  // ---------- Daily Reset (optional RPC if you created one)
   const onDailyReset = useCallback(async () => {
     try {
       const { error } = await supabase.rpc('api_daily_reset')
@@ -139,17 +150,17 @@ export default function App() {
     location.reload()
   }, [])
 
-  // -------- Single Undo inference for Checkout panel
+  // ---------- Single Undo inference for Checkout panel
   const inferPrevStatus = useCallback(
     (s: StudentRow): 'picked' | 'not_picked' => {
-      // If the student was picked at any point today, send them back to "picked" (bus queue).
-      // Otherwise, send back to "not_picked" (direct check-in).
+      // If student was ever picked today, send back to "picked" (Bus queue),
+      // else "not_picked" (Direct check-in).
       return pickedEverToday.has(s.id) ? 'picked' : 'not_picked'
     },
     [pickedEverToday]
   )
 
-  // -------- Header date (EST)
+  // ---------- Header date (EST)
   const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
   return (
@@ -174,17 +185,17 @@ export default function App() {
         <BusPage
           students={students}
           roster={roster}
-          rosterTimes={rosterTimes}          // <-- timestamps wired (shows EST time on pages)
+          rosterTimes={rosterTimes}          // timestamps → shows EST time on the row subtitle
           onSet={setStatusPersist}
         />
       )}
       {page === 'center' && (
-        <CenterPage 
+        <CenterPage
           students={students}
           roster={roster}
-          rosterTimes={rosterTimes}          // <-- timestamps wired (shows EST time)
+          rosterTimes={rosterTimes}
           onSet={setStatusPersist}
-          inferPrevStatus={inferPrevStatus}  // <-- single Undo on Checkout
+          inferPrevStatus={inferPrevStatus}  // single Undo (arrived → picked/not_picked)
         />
       )}
       {page === 'skip' && (
