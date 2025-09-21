@@ -7,6 +7,7 @@ type Props = {
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
   inferPrevStatus: (s: StudentRow) => 'picked' | 'not_picked'
+  globalCounts: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type CenterTab = 'in' | 'out'
@@ -17,37 +18,27 @@ function fmtEST(iso?: string) {
   if (!iso) return ''
   try {
     const d = new Date(iso)
-    return d.toLocaleTimeString('en-US', {
-      timeZone: 'America/New_York',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return ''
-  }
+    return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+  } catch { return '' }
 }
-
 function currentTimeEST_HHMM() {
   const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
   const hh = String(nowEST.getHours()).padStart(2, '0')
   const mm = String(nowEST.getMinutes()).padStart(2, '0')
   return `${hh}:${mm}`
 }
+function nameOf(s: StudentRow) { return `${s.first_name} ${s.last_name}` }
 
-function nameOf(s: StudentRow) {
-  return `${s.first_name} ${s.last_name}`
-}
-
-function StudentRowCard({
-  s, subtitle, actions,
-}: { s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode }) {
+function StudentRowCard({ s, subtitle, actions }:{
+  s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
+}) {
   return (
-    <div className="card row between" style={{ alignItems:'center' }}>
-      <div>
+    <div className="card row" style={{ alignItems:'center' }}>
+      <div style={{ minWidth: 0 }}>
         <div className="title">{nameOf(s)}</div>
         <div className="muted">{subtitle}</div>
       </div>
-      <div className="row gap">{actions}</div>
+      <div className="row gap" style={{ marginLeft:'auto' }}>{actions}</div>
     </div>
   )
 }
@@ -80,7 +71,9 @@ function Modal({ open, title, onClose, children }:{
   )
 }
 
-export default function CenterPage({ students, roster, rosterTimes, onSet, inferPrevStatus }: Props) {
+export default function CenterPage({
+  students, roster, rosterTimes, onSet, inferPrevStatus, globalCounts
+}: Props) {
   const [tab, setTab] = useState<CenterTab>('in')
   const [school, setSchool] = useState<string>('All')
   const [q, setQ] = useState('')
@@ -136,7 +129,6 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     return true
   }, [school, q])
 
-  // Panels
   const pickedFromBus = useMemo(
     () => sorted.filter(s => roster[s.id]==='picked' && matches(s)),
     [sorted, roster, matches]
@@ -157,15 +149,11 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
     [sorted, roster, matches]
   )
 
-  // Tiles counts (per tab)
-  const tilesIn = { picked: pickedFromBus.length, direct: directCheckIn.length }
-  const tilesOut = { arrived: arrived.length, checked: checkedOut.length }
-
   const subtitleFor = (s: StudentRow) => {
     const st = roster[s.id]
-    const base =
-      `School: ${s.school} | ` +
-      (st==='checked'?'Checked Out': st==='arrived'?'Arrived': st==='picked'?'Picked': st==='skipped'?'Skipped':'Not Picked')
+    const base = `School: ${s.school} | ${
+      st==='checked'?'Checked Out': st==='arrived'?'Arrived': st==='picked'?'Picked': st==='skipped'?'Skipped':'Not Picked'
+    }`
     if (st==='picked' || st==='arrived' || st==='checked') {
       const t = fmtEST(rosterTimes[s.id])
       return t ? `${base} : ${t}` : base
@@ -175,8 +163,8 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
 
   return (
     <div className="panel">
-      {/* Page filters */}
-      <div className="row gap wrap" style={{ marginBottom: 12 }}>
+      {/* Filters */}
+      <div className="row gap wrap" style={{ marginBottom: 8 }}>
         <div className="seg">
           <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
           {SCHOOLS.map(sch=>(
@@ -193,30 +181,26 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         </div>
       </div>
 
+      {/* Global roll-up counts (always visible, under filters) */}
+      <div className="row gap" style={{ marginBottom: 12 }}>
+        <span className="chip">To Pick <b>{globalCounts.not_picked}</b></span>
+        <span className="chip">Picked <b>{globalCounts.picked}</b></span>
+        <span className="chip">Arrived <b>{globalCounts.arrived}</b></span>
+        <span className="chip">Checked Out <b>{globalCounts.checked}</b></span>
+        <span className="chip">Skipped <b>{globalCounts.skipped}</b></span>
+      </div>
+
       {/* Tabs */}
       <div className="seg" style={{ marginBottom: 10 }}>
         <button className={'seg-btn' + (tab==='in'?' on':'')} onClick={()=>setTab('in')}>Check-in</button>
         <button className={'seg-btn' + (tab==='out'?' on':'')} onClick={()=>setTab('out')}>Checkout</button>
       </div>
 
-      {/* Page tiles (per tab) */}
-      {tab==='in' ? (
-        <div className="row gap" style={{ marginBottom: 8 }}>
-          <div className="tile">From Bus (Picked) <strong>{tilesIn.picked}</strong></div>
-          <div className="tile">Direct Check-in <strong>{tilesIn.direct}</strong></div>
-        </div>
-      ) : (
-        <div className="row gap" style={{ marginBottom: 8 }}>
-          <div className="tile">Ready to Checkout <strong>{tilesOut.arrived}</strong></div>
-          <div className="tile">Checked Out <strong>{tilesOut.checked}</strong></div>
-        </div>
-      )}
-
       {tab==='in' ? (
         <div style={twoCol}>
           {/* Center Check-in (from Bus) */}
           <div className="card">
-            <h3>Center Check-in (from Bus) <span className="badge">{pickedFromBus.length}</span></h3>
+            <h3>Center Check-in (from Bus)</h3>
             {pickedFromBus.length===0 ? <div className="muted">No students to check in from bus.</div> : (
               pickedFromBus.map(s=>(
                 <StudentRowCard
@@ -226,7 +210,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
                   actions={
                     <>
                       <button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>
-                      <button className="btn" onClick={()=>act(s.id,'not_picked')}>Undo</button>
+                      <button className="btn" onClick={()=>act(s.id, 'not_picked')}>Undo</button>
                     </>
                   }
                 />
@@ -236,7 +220,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
 
           {/* Direct Check-in (No Bus) */}
           <div className="card">
-            <h3>Direct Check-in (No Bus) <span className="badge">{directCheckIn.length}</span></h3>
+            <h3>Direct Check-in (No Bus)</h3>
             {directCheckIn.length===0 ? <div className="muted">No students for direct check-in.</div> : (
               directCheckIn.map(s=>(
                 <StudentRowCard
@@ -253,7 +237,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         <div style={twoCol}>
           {/* Checkout */}
           <div className="card">
-            <h3>Checkout <span className="badge">{arrived.length}</span></h3>
+            <h3>Checkout</h3>
             {arrived.length===0 ? <div className="muted">No students ready to check out.</div> : (
               arrived.map(s=>(
                 <StudentRowCard
@@ -273,7 +257,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
 
           {/* Checked Out */}
           <div className="card">
-            <h3>Checked Out <span className="badge">{checkedOut.length}</span></h3>
+            <h3>Checked Out</h3>
             {checkedOut.length===0 ? <div className="muted">No checked-out students.</div> : (
               checkedOut.map(s=>(
                 <StudentRowCard
@@ -316,11 +300,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
             <div className="row gap wrap" style={{ marginTop: 4 }}>
               <div style={{ minWidth: 260, flex: 1 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Admin Override (type name)</div>
-                <input
-                  value={pickupOther}
-                  onChange={(e) => setPickupOther(e.target.value)}
-                  placeholder="Override name (optional)"
-                />
+                <input value={pickupOther} onChange={(e) => setPickupOther(e.target.value)} placeholder="Override name (optional)" />
               </div>
               <div style={{ minWidth: 180 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Pickup Time (EST)</div>
@@ -335,6 +315,16 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
           </div>
         )}
       </Modal>
+
+      {/* chip styles */}
+      <style>{`
+        .chip {
+          display:inline-flex; align-items:center; gap:6px;
+          padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
+          font-size:12px; background:#fff;
+        }
+        .chip b { font-weight:600 }
+      `}</style>
     </div>
   )
 }
