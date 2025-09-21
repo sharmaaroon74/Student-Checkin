@@ -43,3 +43,76 @@ input[type="datetime-local"]{padding:6px 10px}
 .seg{display:flex;gap:6px;background:var(--brand-ghost);padding:4px;border-radius:999px}
 .seg-btn{border:1px solid transparent;background:transparent;padding:6px 10px;border-radius:999px}
 .seg-btn.on{background:#fff;border-color:var(--b)}
+/* (optional) make modal action buttons wrap nicely on small screens */
+.row.wrap { flex-wrap: wrap; }
+
+/* === Mobile polish with scroll hint === */
+@media (max-width: 767px) {
+  .two-col {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: min(92vw, 420px);
+    overflow-x: auto;
+    gap: 16px;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 6px;
+    position: relative; /* allow hint overlays */
+  }
+
+  .two-col > .card {
+    min-width: min(92vw, 420px);
+    scroll-snap-align: start;
+  }
+
+  /* Fading scroll hint */
+  .two-col::before,
+  .two-col::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 24px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .two-col::before {
+    left: 0;
+    background: linear-gradient(to right, rgba(255,255,255,0.9), transparent);
+  }
+  .two-col::after {
+    right: 0;
+    background: linear-gradient(to left, rgba(255,255,255,0.9), transparent);
+  }
+
+  /* Scrollbar hidden on iOS/Chrome */
+  .two-col::-webkit-scrollbar { display: none; }
+
+  /* Filters: scrollable segmented controls */
+  .seg, .seg.seg-scroll {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Larger buttons for easier taps */
+  .sd-card-actions .btn,
+  .sd-card-actions .btn.primary {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .title { font-size: 16px; }
+  .muted { font-size: 12px; }
+}
+
+@media (min-width: 768px) {
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    overflow: visible;
+    position: static;
+  }
+  .two-col::before,
+  .two-col::after { display: none; }
+}
