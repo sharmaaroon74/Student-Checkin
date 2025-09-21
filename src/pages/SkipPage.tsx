@@ -6,56 +6,47 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
+  globalCounts: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type SortKey = 'first' | 'last'
 const SCHOOLS = ['Bain', 'QG', 'MHE', 'MC'] as const
 
-function nameOf(s: StudentRow) {
-  return `${s.first_name} ${s.last_name}`
-}
+function nameOf(s: StudentRow) { return `${s.first_name} ${s.last_name}` }
 
 function fmtEST(iso?: string) {
   if (!iso) return ''
   try {
     const d = new Date(iso)
-    return d.toLocaleTimeString('en-US', {
-      timeZone: 'America/New_York',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return ''
-  }
+    return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+  } catch { return '' }
 }
-
 function subtitleFor(s: StudentRow, st: Status | undefined, t?: string) {
-  const base =
-    `School: ${s.school} | ` +
-    (st==='checked'?'Checked Out': st==='arrived'?'Arrived': st==='picked'?'Picked': st==='skipped'?'Skipped':'Not Picked')
+  const base = `School: ${s.school} | ${
+    st==='checked'?'Checked Out': st==='arrived'?'Arrived': st==='picked'?'Picked': st==='skipped'?'Skipped':'Not Picked'
+  }`
   if (st==='picked' || st==='arrived' || st==='checked') {
-    const time = fmtEST(t)
-    return time ? `${base} : ${time}` : base
+    const time = fmtEST(t); return time ? `${base} : ${time}` : base
   }
   return base
 }
 
-function StudentRowCard({
-  s, subtitle, actions,
-}: { s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode }) {
+function StudentRowCard({ s, subtitle, actions }:{
+  s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
+}) {
   return (
-    <div className="card row between" style={{ alignItems:'center' }}>
-      <div>
+    <div className="card row" style={{ alignItems:'center' }}>
+      <div style={{ minWidth: 0 }}>
         <div className="title">{nameOf(s)}</div>
         <div className="muted">{subtitle}</div>
       </div>
-      <div className="row gap">{actions}</div>
+      <div className="row gap" style={{ marginLeft:'auto' }}>{actions}</div>
     </div>
   )
 }
 
-export default function SkipPage({ students, roster, rosterTimes, onSet }: Props) {
-  const [school, setSchool] = useState<string>('All') // single select
+export default function SkipPage({ students, roster, rosterTimes, onSet, globalCounts }: Props) {
+  const [school, setSchool] = useState<string>('All')
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('first')
 
@@ -83,7 +74,7 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
     return true
   }, [school, q])
 
-  // Eligible to mark skip: only not_picked (per your rule)
+  // Eligible to mark skip: only not_picked
   const canSkip = useMemo(
     () => sorted.filter(s => {
       const st = roster[s.id]
@@ -101,8 +92,8 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
 
   return (
     <div className="panel">
-      {/* Page filters (moved to page level) */}
-      <div className="row gap wrap" style={{ marginBottom: 10 }}>
+      {/* Filters */}
+      <div className="row gap wrap" style={{ marginBottom: 8 }}>
         <div className="seg">
           <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
           {SCHOOLS.map(sch=>(
@@ -119,16 +110,19 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
         </div>
       </div>
 
-      {/* Page tiles */}
-      <div className="row gap" style={{ marginBottom: 8 }}>
-        <div className="tile">Eligible to Mark Skip <strong>{canSkip.length}</strong></div>
-        <div className="tile">Skipped Today <strong>{skipped.length}</strong></div>
+      {/* Global roll-up counts (always visible, under filters) */}
+      <div className="row gap" style={{ marginBottom: 12 }}>
+        <span className="chip">To Pick <b>{globalCounts.not_picked}</b></span>
+        <span className="chip">Picked <b>{globalCounts.picked}</b></span>
+        <span className="chip">Arrived <b>{globalCounts.arrived}</b></span>
+        <span className="chip">Checked Out <b>{globalCounts.checked}</b></span>
+        <span className="chip">Skipped <b>{globalCounts.skipped}</b></span>
       </div>
 
       <div style={twoCol}>
         {/* Mark Skip Today */}
         <div className="card">
-          <h3>Mark Skip Today <span className="badge">{canSkip.length}</span></h3>
+          <h3>Mark Skip Today</h3>
           {canSkip.length===0 ? <div className="muted">No students eligible to skip.</div> : (
             canSkip.map(s=>(
               <StudentRowCard
@@ -143,7 +137,7 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
 
         {/* Skipped Today */}
         <div className="card">
-          <h3>Skipped Today <span className="badge">{skipped.length}</span></h3>
+          <h3>Skipped Today</h3>
           {skipped.length===0 ? <div className="muted">No students skipped.</div> : (
             skipped.map(s=>(
               <StudentRowCard
@@ -156,6 +150,16 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
           )}
         </div>
       </div>
+
+      {/* chip styles */}
+      <style>{`
+        .chip {
+          display:inline-flex; align-items:center; gap:6px;
+          padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
+          font-size:12px; background:#fff;
+        }
+        .chip b { font-weight:600 }
+      `}</style>
     </div>
   )
 }

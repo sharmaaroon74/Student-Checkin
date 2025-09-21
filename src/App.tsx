@@ -52,20 +52,8 @@ function AuthPanePassword() {
       <div className="card">
         <h2 style={{ marginBottom: 12 }}>Sunny Days — {mode === 'signin' ? 'Sign In' : 'Create Account'}</h2>
         <form onSubmit={submit} className="col gap">
-          <input
-            type="email"
-            placeholder="you@school.org"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="username"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-          />
+          <input type="email" placeholder="you@school.org" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
           <button className="btn primary" type="submit" disabled={busy}>
             {busy ? (mode === 'signin' ? 'Signing in…' : 'Creating…') : (mode === 'signin' ? 'Sign In' : 'Create Account')}
           </button>
@@ -84,7 +72,7 @@ function AuthPanePassword() {
 export default function App() {
   const [page, setPage] = useState<Page>('bus')
 
-  const [userId, setUserId] = useState<string | null>(null)         // auth guard
+  const [userId, setUserId] = useState<string | null>(null)
   const [students, setStudents] = useState<StudentRow[]>([])
   const [roster, setRoster] = useState<Record<string, Status>>({})
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
@@ -93,7 +81,7 @@ export default function App() {
 
   const rosterDate = todayKeyEST()
 
-  /** ---------- Session bootstrap & listener ---------- */
+  /** Session bootstrap & listener */
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -107,7 +95,7 @@ export default function App() {
     return () => { sub.subscription.unsubscribe() }
   }, [])
 
-  /** ---------- Data fetchers (run only when logged in) ---------- */
+  /** Data fetchers */
   const fetchStudents = useCallback(async () => {
     const { data, error } = await supabase
       .from('students')
@@ -166,15 +154,10 @@ export default function App() {
 
   useEffect(() => { refetchAll() }, [refetchAll])
 
-  /** ---------- Realtime subscription + polling fallback ---------- */
-  useRealtimeRoster(
-    rosterDate,
-    setRoster,
-    setRosterTimes,
-    fetchRoster
-  )
+  /** Realtime + fallback */
+  useRealtimeRoster(rosterDate, setRoster, setRosterTimes, fetchRoster)
 
-  /** ---------- Persist status (no optimistic write), then refresh ---------- */
+  /** Persist status */
   const setStatusPersist = useCallback(
     async (studentId: string, st: Status, meta?: any) => {
       if (!userId) { alert('Please sign in.'); return }
@@ -182,7 +165,6 @@ export default function App() {
       let wrote = false
 
       try {
-        // Preferred: secure RPC
         const { error: rpcErr } = await supabase.rpc('api_set_status', {
           p_student_id: studentId,
           p_new_status: st,
@@ -191,7 +173,6 @@ export default function App() {
 
         if (rpcErr) {
           console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
-          // Fallback: direct upsert (requires RLS insert/update on roster_status)
           const { error: upErr } = await supabase
             .from('roster_status')
             .upsert({
@@ -200,7 +181,6 @@ export default function App() {
               current_status: st,
               last_update: new Date().toISOString(),
             })
-
           if (upErr) {
             console.error('[roster_status upsert] error', upErr)
             alert(`Failed to save.\n\n${upErr.message || upErr}`)
@@ -230,7 +210,7 @@ export default function App() {
     [userId, rosterDate, fetchRoster, fetchPickedLogToday]
   )
 
-  /** ---------- Daily Reset ---------- */
+  /** Daily Reset */
   const onDailyReset = useCallback(async () => {
     if (!userId) { alert('Please sign in.'); return }
     try {
@@ -242,25 +222,21 @@ export default function App() {
     await refetchAll()
   }, [userId, refetchAll])
 
-  /** ---------- Hard logout ---------- */
+  /** Logout */
   const onLogout = useCallback(async () => {
     try { await supabase.auth.signOut() } catch {}
-    try {
-      Object.keys(localStorage).forEach(k => { if (k.startsWith('sb-')) localStorage.removeItem(k) })
-    } catch {}
+    try { Object.keys(localStorage).forEach(k => { if (k.startsWith('sb-')) localStorage.removeItem(k) }) } catch {}
     setUserId(null)
     window.location.replace('/')
   }, [])
 
-  /** ---------- Infer previous status for single Undo on Arrived ---------- */
+  /** Infer previous status for single Undo on Arrived */
   const inferPrevStatus = useCallback(
-    (s: StudentRow): 'picked' | 'not_picked' => {
-      return pickedEverToday.has(s.id) ? 'picked' : 'not_picked'
-    },
+    (s: StudentRow): 'picked' | 'not_picked' => pickedEverToday.has(s.id) ? 'picked' : 'not_picked',
     [pickedEverToday]
   )
 
-  /** ---------- Global roll-up counts (active students only) ---------- */
+  /** Global roll-up counts (active students only) */
   const globalCounts = useMemo(() => {
     const ids = students.filter(s => s.active).map(s => s.id)
     let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
@@ -277,13 +253,11 @@ export default function App() {
 
   const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
-  /** ---------- If not logged in, show Auth ---------- */
   if (!userId) return <AuthPanePassword />
 
-  /** ---------- App UI (logged in) ---------- */
   return (
     <div className="container">
-      {/* Top Nav */}
+      {/* Top Nav only (no counts here) */}
       <div className="row gap wrap" style={{ marginBottom: 6 }}>
         <div className="seg">
           <button className={'seg-btn' + (page === 'bus' ? ' on' : '')} onClick={() => setPage('bus')}>Bus</button>
@@ -291,38 +265,21 @@ export default function App() {
           <button className={'seg-btn' + (page === 'skip' ? ' on' : '')} onClick={() => setPage('skip')}>Skip</button>
         </div>
         <div className="grow" />
-        <div className="row gap" style={{ alignItems:'center' }}>
-          {/* compact chips next to date */}
-          <span className="chip">To Pick <b>{globalCounts.not_picked}</b></span>
-          <span className="chip">Picked <b>{globalCounts.picked}</b></span>
-          <span className="chip">Arrived <b>{globalCounts.arrived}</b></span>
-          <span className="chip">Checked Out <b>{globalCounts.checked}</b></span>
-          <span className="chip">Skipped <b>{globalCounts.skipped}</b></span>
-
-          <div className="muted" style={{ marginLeft: 8 }}>Sunny Days — {estHeaderDate}</div>
+        <div className="row gap">
+          <div className="muted">Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
-          <div className="muted" style={{ marginLeft: 8 }}>build: v1.2-counts</div>
         </div>
       </div>
 
-      {/* lightweight chip styling */}
-      <style>{`
-        .chip {
-          display:inline-flex; align-items:center; gap:6px;
-          padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
-          font-size:12px; background:#fff;
-        }
-        .chip b { font-weight:600 }
-      `}</style>
-
-      {/* Pages */}
+      {/* Pages (each will render the global counts beneath its filters) */}
       {page === 'bus' && (
         <BusPage
           students={students}
           roster={roster}
           rosterTimes={rosterTimes}
           onSet={setStatusPersist}
+          globalCounts={globalCounts}
         />
       )}
       {page === 'center' && (
@@ -332,6 +289,7 @@ export default function App() {
           rosterTimes={rosterTimes}
           onSet={setStatusPersist}
           inferPrevStatus={inferPrevStatus}
+          globalCounts={globalCounts}
         />
       )}
       {page === 'skip' && (
@@ -340,6 +298,7 @@ export default function App() {
           roster={roster}
           rosterTimes={rosterTimes}
           onSet={setStatusPersist}
+          globalCounts={globalCounts}
         />
       )}
     </div>
