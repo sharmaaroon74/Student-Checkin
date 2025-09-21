@@ -6,6 +6,8 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
+  // optional: ignored; page now computes filtered counts locally
+  globalCounts?: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type SortKey = 'first' | 'last'
@@ -38,12 +40,12 @@ function StudentRowCard({ s, subtitle, actions }:{
   s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
 }) {
   return (
-    <div className="sd-card sd-card-row">
-      <div className="sd-card-main">
+    <div className="card row" style={{ alignItems:'center' }}>
+      <div style={{ minWidth: 0 }}>
         <div className="title">{nameOf(s)}</div>
         <div className="muted">{subtitle}</div>
       </div>
-      <div className="sd-card-actions">{actions}</div>
+      <div className="row gap" style={{ marginLeft:'auto' }}>{actions}</div>
     </div>
   )
 }
@@ -77,8 +79,10 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
     return true
   }, [school, q])
 
+  // Filtered universe for this page (respects school/search)
   const filtered = useMemo(() => sorted.filter(matches), [sorted, matches])
 
+  // Filtered-counts (respecting filters)
   const counts = useMemo(() => {
     let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
     for (const s of filtered) {
@@ -105,30 +109,30 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
     [filtered, roster]
   )
 
+  const twoCol: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, alignItems:'start' }
+
   return (
     <div className="panel">
       {/* Filters */}
       <div className="row gap wrap" style={{ marginBottom: 8 }}>
-        <div className="seg seg-scroll">
+        <div className="seg">
           <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
           {SCHOOLS.map(sch=>(
             <button key={sch} className={'seg-btn' + (school===sch?' on':'')} onClick={()=>setSchool(sch)}>{sch}</button>
           ))}
         </div>
-        <div className="stack-sm">
-          <input className="w-full" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…"/>
-          <div className="row gap sort-row">
-            <span className="muted">Sort</span>
-            <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
-              <option value="first">First Name</option>
-              <option value="last">Last Name</option>
-            </select>
-          </div>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…" style={{ flex:1, minWidth:220 }}/>
+        <div className="row gap" style={{ alignItems:'center' }}>
+          <span className="muted">Sort</span>
+          <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
+            <option value="first">First Name</option>
+            <option value="last">Last Name</option>
+          </select>
         </div>
       </div>
 
-      {/* Counts */}
-      <div className="row gap wrap counts-row">
+      {/* Filtered counts */}
+      <div className="row gap" style={{ marginBottom: 12 }}>
         <span className="chip">To Pick <b>{counts.not_picked}</b></span>
         <span className="chip">Picked <b>{counts.picked}</b></span>
         <span className="chip">Arrived <b>{counts.arrived}</b></span>
@@ -136,8 +140,8 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
         <span className="chip">Skipped <b>{counts.skipped}</b></span>
       </div>
 
-      {/* Responsive two-column (mobile = stacked) */}
-      <div className="two-col">
+      <div style={twoCol}>
+        {/* Bus Pickup */}
         <div className="card">
           <h3>Bus Pickup</h3>
           {toPick.length===0 ? <div className="muted">No students to pick up.</div> : (
@@ -146,12 +150,13 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
                 key={s.id}
                 s={s}
                 subtitle={subtitleFor(s, roster[s.id], rosterTimes[s.id])}
-                actions={<button className="btn primary btn-mobile" onClick={()=>act(s.id,'picked')}>Mark Picked</button>}
+                actions={<button className="btn primary" onClick={()=>act(s.id,'picked')}>Mark Picked</button>}
               />
             ))
           )}
         </div>
 
+        {/* Skipped Today */}
         <div className="card">
           <h3>Skipped Today</h3>
           {skipped.length===0 ? <div className="muted">No students skipped today.</div> : (
@@ -160,34 +165,15 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
                 key={s.id}
                 s={s}
                 subtitle={subtitleFor(s, roster[s.id], rosterTimes[s.id])}
-                actions={<button className="btn btn-mobile" onClick={()=>act(s.id,'not_picked')}>Unskip Today</button>}
+                actions={<button className="btn" onClick={()=>act(s.id,'not_picked')}>Unskip Today</button>}
               />
             ))
           )}
         </div>
       </div>
 
-      {/* Mobile CSS helpers */}
+      {/* chip styles */}
       <style>{`
-        .two-col { display:grid; grid-template-columns: 1fr; gap:16px; }
-        @media (min-width: 768px) { .two-col { grid-template-columns: 1fr 1fr; } }
-
-        .seg-scroll { overflow-x:auto; white-space:nowrap; padding-bottom:4px; }
-
-        .stack-sm { display:flex; flex-direction:column; gap:8px; flex:1; min-width:220px; }
-        .sort-row { align-items:center; }
-
-        .counts-row { margin: 10px 0 14px; }
-
-        .sd-card.sd-card-row { display:flex; gap:12px; align-items:center; }
-        .sd-card-main { min-width:0; flex:1; }
-        .sd-card-actions { display:flex; gap:8px; margin-left:auto; }
-        @media (max-width: 767px) {
-          .sd-card.sd-card-row { flex-direction:column; align-items:stretch; }
-          .sd-card-actions { margin-left:0; }
-          .btn-mobile { width:100%; min-height:40px; }
-        }
-
         .chip {
           display:inline-flex; align-items:center; gap:6px;
           padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
