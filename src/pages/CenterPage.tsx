@@ -7,8 +7,6 @@ type Props = {
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
   inferPrevStatus: (s: StudentRow) => 'picked' | 'not_picked'
-  // optional: ignored; page now computes filtered counts locally
-  globalCounts?: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type CenterTab = 'in' | 'out'
@@ -34,17 +32,16 @@ function StudentRowCard({ s, subtitle, actions }:{
   s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
 }) {
   return (
-    <div className="card row" style={{ alignItems:'center' }}>
-      <div style={{ minWidth: 0 }}>
+    <div className="sd-card sd-card-row">
+      <div className="sd-card-main">
         <div className="title">{nameOf(s)}</div>
         <div className="muted">{subtitle}</div>
       </div>
-      <div className="row gap" style={{ marginLeft:'auto' }}>{actions}</div>
+      <div className="sd-card-actions">{actions}</div>
     </div>
   )
 }
 
-/** Centered modal */
 function Modal({ open, title, onClose, children }:{
   open: boolean; title: string; onClose: ()=>void; children: React.ReactNode
 }) {
@@ -58,13 +55,13 @@ function Modal({ open, title, onClose, children }:{
       </div>
       <style>{`
         .sd-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.45);
-          display:flex; align-items:center; justify-content:center; z-index:9999; padding:16px; }
-        .sd-modal{ position:relative; width:min(600px, 92vw); background:#fff; border-radius:16px; padding:20px 20px 16px;
+          display:flex; align-items:center; justify-content:center; z-index:9999; padding:12px; }
+        .sd-modal{ position:relative; width:min(640px, 92vw); background:#fff; border-radius:16px; padding:20px;
           box-shadow:0 18px 50px rgba(0,0,0,0.25); }
         .sd-close{ position:absolute; top:10px; right:10px; border:1px solid #E5E7EB; background:#fff; border-radius:10px; padding:4px 8px; cursor:pointer; }
         .sd-title{ margin:0 28px 12px 0; font-size:18px; font-weight:600; }
         .sd-body{ display:block }
-        .pill-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
+        .pill-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:10px; }
         .pill{ border:1px solid #d1d5db; padding:10px 12px; border-radius:999px; background:#fff; cursor:pointer; text-align:left; }
         .pill.on{ background:#0b1220; color:#fff; border-color:#0b1220; }
       `}</style>
@@ -86,8 +83,6 @@ export default function CenterPage({
   const [pickupSelect, setPickupSelect] = useState<string>('') // no default selection
   const [pickupOther, setPickupOther] = useState<string>('')   // admin override
   const [pickupTime, setPickupTime] = useState<string>(currentTimeEST_HHMM())
-
-  const twoCol: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, alignItems:'start' }
 
   const act = useCallback((id: string, st: Status, meta?: any) => {
     setQ('')
@@ -147,7 +142,6 @@ export default function CenterPage({
     return { not_picked, picked, arrived, checked, skipped }
   }, [filtered, roster])
 
-  // Panels from filtered
   const pickedFromBus = useMemo(
     () => filtered.filter(s => roster[s.id]==='picked'),
     [filtered, roster]
@@ -184,24 +178,26 @@ export default function CenterPage({
     <div className="panel">
       {/* Filters */}
       <div className="row gap wrap" style={{ marginBottom: 8 }}>
-        <div className="seg">
+        <div className="seg seg-scroll">
           <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
           {SCHOOLS.map(sch=>(
             <button key={sch} className={'seg-btn' + (school===sch?' on':'')} onClick={()=>setSchool(sch)}>{sch}</button>
           ))}
         </div>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…" style={{ flex:1, minWidth:220 }}/>
-        <div className="row gap" style={{ alignItems:'center' }}>
-          <span className="muted">Sort</span>
-          <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
-            <option value="first">First Name</option>
-            <option value="last">Last Name</option>
-          </select>
+        <div className="stack-sm">
+          <input className="w-full" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…"/>
+          <div className="row gap sort-row">
+            <span className="muted">Sort</span>
+            <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
+              <option value="first">First Name</option>
+              <option value="last">Last Name</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Filtered counts (under filters) */}
-      <div className="row gap" style={{ marginBottom: 12 }}>
+      {/* Counts */}
+      <div className="row gap wrap counts-row">
         <span className="chip">To Pick <b>{counts.not_picked}</b></span>
         <span className="chip">Picked <b>{counts.picked}</b></span>
         <span className="chip">Arrived <b>{counts.arrived}</b></span>
@@ -216,8 +212,7 @@ export default function CenterPage({
       </div>
 
       {tab==='in' ? (
-        <div style={twoCol}>
-          {/* Center Check-in (from Bus) */}
+        <div className="two-col">
           <div className="card">
             <h3>Center Check-in (from Bus)</h3>
             {pickedFromBus.length===0 ? <div className="muted">No students to check in from bus.</div> : (
@@ -228,8 +223,8 @@ export default function CenterPage({
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
-                      <button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>
-                      <button className="btn" onClick={()=>act(s.id, 'not_picked')}>Undo</button>
+                      <button className="btn primary btn-mobile" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>
+                      <button className="btn btn-mobile" onClick={()=>act(s.id, 'not_picked')}>Undo</button>
                     </>
                   }
                 />
@@ -237,7 +232,6 @@ export default function CenterPage({
             )}
           </div>
 
-          {/* Direct Check-in (No Bus) */}
           <div className="card">
             <h3>Direct Check-in (No Bus)</h3>
             {directCheckIn.length===0 ? <div className="muted">No students for direct check-in.</div> : (
@@ -246,15 +240,14 @@ export default function CenterPage({
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
-                  actions={<button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>}
+                  actions={<button className="btn primary btn-mobile" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>}
                 />
               ))
             )}
           </div>
         </div>
       ) : (
-        <div style={twoCol}>
-          {/* Checkout */}
+        <div className="two-col">
           <div className="card">
             <h3>Checkout</h3>
             {arrived.length===0 ? <div className="muted">No students ready to check out.</div> : (
@@ -265,8 +258,8 @@ export default function CenterPage({
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
-                      <button className="btn primary" onClick={()=>openCheckout(s)}>Checkout</button>
-                      <button className="btn" onClick={()=>act(s.id, inferPrevStatus(s))}>Undo</button>
+                      <button className="btn primary btn-mobile" onClick={()=>openCheckout(s)}>Checkout</button>
+                      <button className="btn btn-mobile" onClick={()=>act(s.id, inferPrevStatus(s))}>Undo</button>
                     </>
                   }
                 />
@@ -274,7 +267,6 @@ export default function CenterPage({
             )}
           </div>
 
-          {/* Checked Out */}
           <div className="card">
             <h3>Checked Out</h3>
             {checkedOut.length===0 ? <div className="muted">No checked-out students.</div> : (
@@ -283,7 +275,7 @@ export default function CenterPage({
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
-                  actions={<button className="btn" onClick={()=>act(s.id,'arrived')}>Undo</button>}
+                  actions={<button className="btn btn-mobile" onClick={()=>act(s.id,'arrived')}>Undo</button>}
                 />
               ))
             )}
@@ -291,7 +283,6 @@ export default function CenterPage({
         </div>
       )}
 
-      {/* Checkout Modal */}
       <Modal
         open={checkoutOpen}
         title={checkoutStudent ? `Checkout — ${nameOf(checkoutStudent)}` : 'Checkout'}
@@ -317,11 +308,11 @@ export default function CenterPage({
             </div>
 
             <div className="row gap wrap" style={{ marginTop: 4 }}>
-              <div style={{ minWidth: 260, flex: 1 }}>
+              <div style={{ minWidth: 240, flex: 1 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Admin Override (type name)</div>
                 <input value={pickupOther} onChange={(e) => setPickupOther(e.target.value)} placeholder="Override name (optional)" />
               </div>
-              <div style={{ minWidth: 180 }}>
+              <div style={{ minWidth: 160 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Pickup Time (EST)</div>
                 <input type="time" value={pickupTime} onChange={(e)=>setPickupTime(e.target.value)} />
               </div>
@@ -335,8 +326,27 @@ export default function CenterPage({
         )}
       </Modal>
 
-      {/* chip styles */}
+      {/* Mobile CSS helpers */}
       <style>{`
+        .two-col { display:grid; grid-template-columns: 1fr; gap:16px; }
+        @media (min-width: 768px) { .two-col { grid-template-columns: 1fr 1fr; } }
+
+        .seg-scroll { overflow-x:auto; white-space:nowrap; padding-bottom:4px; }
+
+        .stack-sm { display:flex; flex-direction:column; gap:8px; flex:1; min-width:220px; }
+        .sort-row { align-items:center; }
+
+        .counts-row { margin: 10px 0 14px; }
+
+        .sd-card.sd-card-row { display:flex; gap:12px; align-items:center; }
+        .sd-card-main { min-width:0; flex:1; }
+        .sd-card-actions { display:flex; gap:8px; margin-left:auto; }
+        @media (max-width: 767px) {
+          .sd-card.sd-card-row { flex-direction:column; align-items:stretch; }
+          .sd-card-actions { margin-left:0; }
+          .btn-mobile { width:100%; min-height:40px; }
+        }
+
         .chip {
           display:inline-flex; align-items:center; gap:6px;
           padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
