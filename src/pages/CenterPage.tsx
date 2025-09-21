@@ -39,16 +39,10 @@ function nameOf(s: StudentRow) {
 }
 
 function StudentRowCard({
-  s,
-  subtitle,
-  actions,
-}: {
-  s: StudentRow
-  subtitle: React.ReactNode
-  actions?: React.ReactNode
-}) {
+  s, subtitle, actions,
+}: { s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode }) {
   return (
-    <div className="card row between" style={{ alignItems: 'center' }}>
+    <div className="card row between" style={{ alignItems:'center' }}>
       <div>
         <div className="title">{nameOf(s)}</div>
         <div className="muted">{subtitle}</div>
@@ -58,17 +52,9 @@ function StudentRowCard({
   )
 }
 
-/** Centered modal with fixed max width; header + absolute close btn */
-function Modal({
-  open,
-  title,
-  onClose,
-  children,
-}: {
-  open: boolean
-  title: string
-  onClose: () => void
-  children: React.ReactNode
+/** Centered modal */
+function Modal({ open, title, onClose, children }:{
+  open: boolean; title: string; onClose: ()=>void; children: React.ReactNode
 }) {
   if (!open) return null
   return (
@@ -79,34 +65,15 @@ function Modal({
         <div className="sd-body">{children}</div>
       </div>
       <style>{`
-        .sd-overlay{
-          position:fixed; inset:0; background:rgba(0,0,0,0.45);
-          display:flex; align-items:center; justify-content:center; z-index:9999;
-          padding:16px;
-        }
-        .sd-modal{
-          position:relative;
-          width:min(600px, 92vw);
-          background:#fff; border-radius:16px; padding:20px 20px 16px;
-          box-shadow:0 18px 50px rgba(0,0,0,0.25);
-        }
-        .sd-close{
-          position:absolute; top:10px; right:10px;
-          border:1px solid #E5E7EB; background:#fff; border-radius:10px; padding:4px 8px;
-          cursor:pointer;
-        }
-        .sd-title{
-          margin:0 28px 12px 0; font-size:18px; font-weight:600;
-        }
+        .sd-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.45);
+          display:flex; align-items:center; justify-content:center; z-index:9999; padding:16px; }
+        .sd-modal{ position:relative; width:min(600px, 92vw); background:#fff; border-radius:16px; padding:20px 20px 16px;
+          box-shadow:0 18px 50px rgba(0,0,0,0.25); }
+        .sd-close{ position:absolute; top:10px; right:10px; border:1px solid #E5E7EB; background:#fff; border-radius:10px; padding:4px 8px; cursor:pointer; }
+        .sd-title{ margin:0 28px 12px 0; font-size:18px; font-weight:600; }
         .sd-body{ display:block }
-        .pill-grid{
-          display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr));
-          gap:10px;
-        }
-        .pill{
-          border:1px solid #d1d5db; padding:10px 12px; border-radius:999px;
-          background:#fff; cursor:pointer; text-align:left;
-        }
+        .pill-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
+        .pill{ border:1px solid #d1d5db; padding:10px 12px; border-radius:999px; background:#fff; cursor:pointer; text-align:left; }
         .pill.on{ background:#0b1220; color:#fff; border-color:#0b1220; }
       `}</style>
     </div>
@@ -126,20 +93,12 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
   const [pickupOther, setPickupOther] = useState<string>('')   // admin override
   const [pickupTime, setPickupTime] = useState<string>(currentTimeEST_HHMM())
 
-  const twoCol: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 16,
-    alignItems: 'start',
-  }
+  const twoCol: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, alignItems:'start' }
 
-  const act = useCallback(
-    (id: string, st: Status, meta?: any) => {
-      setQ('')
-      onSet(id, st, meta)
-    },
-    [onSet]
-  )
+  const act = useCallback((id: string, st: Status, meta?: any) => {
+    setQ('')
+    onSet(id, st, meta)
+  }, [onSet])
 
   const openCheckout = useCallback((s: StudentRow) => {
     setCheckoutStudent(s)
@@ -152,73 +111,62 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
   const confirmCheckout = useCallback(() => {
     if (!checkoutStudent) return
     const pickupPerson = (pickupOther?.trim() || pickupSelect?.trim())
-    if (!pickupPerson) {
-      alert('Please tap a pickup name or type an override.')
-      return
-    }
-    act(checkoutStudent.id, 'checked', {
-      pickupPerson,
-      time_est: pickupTime,
-    })
+    if (!pickupPerson) { alert('Please tap a pickup name or type an override.'); return }
+    act(checkoutStudent.id, 'checked', { pickupPerson, time_est: pickupTime })
     setCheckoutOpen(false)
     setCheckoutStudent(null)
   }, [checkoutStudent, pickupOther, pickupSelect, pickupTime, act])
 
   const sorted = useMemo(() => {
-    const arr = [...students]
+    const arr = students.filter(s => s.active)
     arr.sort((a, b) => {
       const A = sortKey === 'first' ? a.first_name : a.last_name
       const B = sortKey === 'first' ? b.first_name : b.last_name
-      return A.localeCompare(B, undefined, { sensitivity: 'base' })
+      return A.localeCompare(B, undefined, { sensitivity:'base' })
     })
     return arr
   }, [students, sortKey])
 
-  const matchesFilters = useCallback(
-    (s: StudentRow) => {
-      if (school !== 'All' && s.school !== school) return false
-      if (q) {
-        const hay = `${s.first_name} ${s.last_name}`.toLowerCase()
-        if (!hay.includes(q.toLowerCase())) return false
-      }
-      return true
-    },
-    [school, q]
-  )
+  const matches = useCallback((s: StudentRow) => {
+    if (school!=='All' && s.school!==school) return false
+    if (q) {
+      const hay = `${s.first_name} ${s.last_name}`.toLowerCase()
+      if (!hay.includes(q.toLowerCase())) return false
+    }
+    return true
+  }, [school, q])
 
+  // Panels
   const pickedFromBus = useMemo(
-    () => sorted.filter((s) => roster[s.id] === 'picked' && matchesFilters(s)),
-    [sorted, roster, matchesFilters]
+    () => sorted.filter(s => roster[s.id]==='picked' && matches(s)),
+    [sorted, roster, matches]
   )
-
   const directCheckIn = useMemo(
-    () =>
-      sorted.filter((s) => {
-        const st = roster[s.id]
-        return (!st || st === 'not_picked') && matchesFilters(s)
-      }),
-    [sorted, roster, matchesFilters]
+    () => sorted.filter(s => {
+      const st = roster[s.id]
+      return (!st || st==='not_picked') && matches(s)
+    }),
+    [sorted, roster, matches]
   )
-
   const arrived = useMemo(
-    () => sorted.filter((s) => roster[s.id] === 'arrived' && matchesFilters(s)),
-    [sorted, roster, matchesFilters]
+    () => sorted.filter(s => roster[s.id]==='arrived' && matches(s)),
+    [sorted, roster, matches]
+  )
+  const checkedOut = useMemo(
+    () => sorted.filter(s => roster[s.id]==='checked' && matches(s)),
+    [sorted, roster, matches]
   )
 
-  const checkedOut = useMemo(
-    () => sorted.filter((s) => roster[s.id] === 'checked' && matchesFilters(s)),
-    [sorted, roster, matchesFilters]
-  )
+  // Tiles counts (per tab)
+  const tilesIn = { picked: pickedFromBus.length, direct: directCheckIn.length }
+  const tilesOut = { arrived: arrived.length, checked: checkedOut.length }
 
   const subtitleFor = (s: StudentRow) => {
     const st = roster[s.id]
-    const base = `School: ${s.school} | ${
-      st === 'checked' ? 'Checked Out' :
-      st === 'arrived' ? 'Arrived' :
-      st === 'picked' ? 'Picked' :
-      st === 'skipped' ? 'Skipped' : 'Not Picked'
-    }`
-    if (st === 'picked' || st === 'arrived' || st === 'checked') {
+    const base =
+      `School: ${s.school} | ` +
+      (st==='checked'?'Checked Out': st==='arrived'?'Arrived': st==='picked'?'Picked': st==='skipped'?'Skipped':'Not Picked')
+    if (st==='picked' || st==='arrived' || st==='checked') {
       const t = fmtEST(rosterTimes[s.id])
       return t ? `${base} : ${t}` : base
     }
@@ -230,20 +178,15 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
       {/* Page filters */}
       <div className="row gap wrap" style={{ marginBottom: 12 }}>
         <div className="seg">
-          <button className={'seg-btn' + (school === 'All' ? ' on' : '')} onClick={() => setSchool('All')}>All</button>
-          {SCHOOLS.map((sch) => (
-            <button key={sch} className={'seg-btn' + (school === sch ? ' on' : '')} onClick={() => setSchool(sch)}>{sch}</button>
+          <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
+          {SCHOOLS.map(sch=>(
+            <button key={sch} className={'seg-btn' + (school===sch?' on':'')} onClick={()=>setSchool(sch)}>{sch}</button>
           ))}
         </div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search student…"
-          style={{ flex: 1, minWidth: 220 }}
-        />
-        <div className="row gap" style={{ alignItems: 'center' }}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…" style={{ flex:1, minWidth:220 }}/>
+        <div className="row gap" style={{ alignItems:'center' }}>
           <span className="muted">Sort</span>
-          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+          <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
             <option value="first">First Name</option>
             <option value="last">Last Name</option>
           </select>
@@ -251,27 +194,39 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
       </div>
 
       {/* Tabs */}
-      <div className="seg" style={{ marginBottom: 12 }}>
-        <button className={'seg-btn' + (tab === 'in' ? ' on' : '')} onClick={() => setTab('in')}>Check-in</button>
-        <button className={'seg-btn' + (tab === 'out' ? ' on' : '')} onClick={() => setTab('out')}>Checkout</button>
+      <div className="seg" style={{ marginBottom: 10 }}>
+        <button className={'seg-btn' + (tab==='in'?' on':'')} onClick={()=>setTab('in')}>Check-in</button>
+        <button className={'seg-btn' + (tab==='out'?' on':'')} onClick={()=>setTab('out')}>Checkout</button>
       </div>
 
-      {tab === 'in' ? (
+      {/* Page tiles (per tab) */}
+      {tab==='in' ? (
+        <div className="row gap" style={{ marginBottom: 8 }}>
+          <div className="tile">From Bus (Picked) <strong>{tilesIn.picked}</strong></div>
+          <div className="tile">Direct Check-in <strong>{tilesIn.direct}</strong></div>
+        </div>
+      ) : (
+        <div className="row gap" style={{ marginBottom: 8 }}>
+          <div className="tile">Ready to Checkout <strong>{tilesOut.arrived}</strong></div>
+          <div className="tile">Checked Out <strong>{tilesOut.checked}</strong></div>
+        </div>
+      )}
+
+      {tab==='in' ? (
         <div style={twoCol}>
+          {/* Center Check-in (from Bus) */}
           <div className="card">
-            <h3>Center Check-in (from Bus)</h3>
-            {pickedFromBus.length === 0 ? (
-              <div className="muted">No students to check in from bus.</div>
-            ) : (
-              pickedFromBus.map((s) => (
+            <h3>Center Check-in (from Bus) <span className="badge">{pickedFromBus.length}</span></h3>
+            {pickedFromBus.length===0 ? <div className="muted">No students to check in from bus.</div> : (
+              pickedFromBus.map(s=>(
                 <StudentRowCard
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
-                      <button className="btn primary" onClick={() => act(s.id, 'arrived')}>Mark Arrived</button>
-                      <button className="btn" onClick={() => act(s.id, 'not_picked')}>Undo</button>
+                      <button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>
+                      <button className="btn" onClick={()=>act(s.id,'not_picked')}>Undo</button>
                     </>
                   }
                 />
@@ -279,17 +234,16 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
             )}
           </div>
 
+          {/* Direct Check-in (No Bus) */}
           <div className="card">
-            <h3>Direct Check-in (No Bus)</h3>
-            {directCheckIn.length === 0 ? (
-              <div className="muted">No students for direct check-in.</div>
-            ) : (
-              directCheckIn.map((s) => (
+            <h3>Direct Check-in (No Bus) <span className="badge">{directCheckIn.length}</span></h3>
+            {directCheckIn.length===0 ? <div className="muted">No students for direct check-in.</div> : (
+              directCheckIn.map(s=>(
                 <StudentRowCard
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
-                  actions={<button className="btn primary" onClick={() => act(s.id, 'arrived')}>Mark Arrived</button>}
+                  actions={<button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>}
                 />
               ))
             )}
@@ -297,26 +251,19 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
         </div>
       ) : (
         <div style={twoCol}>
+          {/* Checkout */}
           <div className="card">
-            <h3>Checkout</h3>
-            {arrived.length === 0 ? (
-              <div className="muted">No students ready to check out.</div>
-            ) : (
-              arrived.map((s) => (
+            <h3>Checkout <span className="badge">{arrived.length}</span></h3>
+            {arrived.length===0 ? <div className="muted">No students ready to check out.</div> : (
+              arrived.map(s=>(
                 <StudentRowCard
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
                   actions={
                     <>
-                      <button className="btn primary" onClick={() => openCheckout(s)}>Checkout</button>
-                      <button
-                        className="btn"
-                        onClick={() => act(s.id, inferPrevStatus(s))}
-                        title="Send back to previous queue"
-                      >
-                        Undo
-                      </button>
+                      <button className="btn primary" onClick={()=>openCheckout(s)}>Checkout</button>
+                      <button className="btn" onClick={()=>act(s.id, inferPrevStatus(s))}>Undo</button>
                     </>
                   }
                 />
@@ -324,17 +271,16 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
             )}
           </div>
 
+          {/* Checked Out */}
           <div className="card">
-            <h3>Checked Out</h3>
-            {checkedOut.length === 0 ? (
-              <div className="muted">No checked-out students.</div>
-            ) : (
-              checkedOut.map((s) => (
+            <h3>Checked Out <span className="badge">{checkedOut.length}</span></h3>
+            {checkedOut.length===0 ? <div className="muted">No checked-out students.</div> : (
+              checkedOut.map(s=>(
                 <StudentRowCard
                   key={s.id}
                   s={s}
                   subtitle={subtitleFor(s)}
-                  actions={<button className="btn" onClick={() => act(s.id, 'arrived')}>Undo</button>}
+                  actions={<button className="btn" onClick={()=>act(s.id,'arrived')}>Undo</button>}
                 />
               ))
             )}
@@ -346,7 +292,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
       <Modal
         open={checkoutOpen}
         title={checkoutStudent ? `Checkout — ${nameOf(checkoutStudent)}` : 'Checkout'}
-        onClose={() => { setCheckoutOpen(false); setCheckoutStudent(null) }}
+        onClose={()=>{ setCheckoutOpen(false); setCheckoutStudent(null) }}
       >
         {checkoutStudent && (
           <div className="col gap">
@@ -378,16 +324,12 @@ export default function CenterPage({ students, roster, rosterTimes, onSet, infer
               </div>
               <div style={{ minWidth: 180 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Pickup Time (EST)</div>
-                <input
-                  type="time"
-                  value={pickupTime}
-                  onChange={(e) => setPickupTime(e.target.value)}
-                />
+                <input type="time" value={pickupTime} onChange={(e)=>setPickupTime(e.target.value)} />
               </div>
             </div>
 
-            <div className="row gap" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
-              <button className="btn" onClick={() => { setCheckoutOpen(false); setCheckoutStudent(null) }}>Cancel</button>
+            <div className="row gap" style={{ justifyContent:'flex-end', marginTop: 14 }}>
+              <button className="btn" onClick={()=>{ setCheckoutOpen(false); setCheckoutStudent(null) }}>Cancel</button>
               <button className="btn primary" onClick={confirmCheckout}>Checkout</button>
             </div>
           </div>
