@@ -6,8 +6,6 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
-  // optional: ignored; page computes filtered counts locally
-  globalCounts?: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type SortKey = 'first' | 'last'
@@ -34,12 +32,12 @@ function StudentRowCard({ s, subtitle, actions }:{
   s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
 }) {
   return (
-    <div className="card row" style={{ alignItems:'center' }}>
-      <div style={{ minWidth: 0 }}>
+    <div className="sd-card sd-card-row">
+      <div className="sd-card-main">
         <div className="title">{nameOf(s)}</div>
         <div className="muted">{subtitle}</div>
       </div>
-      <div className="row gap" style={{ marginLeft:'auto' }}>{actions}</div>
+      <div className="sd-card-actions">{actions}</div>
     </div>
   )
 }
@@ -73,10 +71,8 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
     return true
   }, [school, q])
 
-  // Filtered universe
   const filtered = useMemo(() => sorted.filter(matches), [sorted, matches])
 
-  // Filtered-counts
   const counts = useMemo(() => {
     let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
     for (const s of filtered) {
@@ -90,7 +86,6 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
     return { not_picked, picked, arrived, checked, skipped }
   }, [filtered, roster])
 
-  // Panels
   const canSkip = useMemo(
     () => filtered.filter(s => {
       const st = roster[s.id]
@@ -104,30 +99,30 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
     [filtered, roster]
   )
 
-  const twoCol: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, alignItems:'start' }
-
   return (
     <div className="panel">
       {/* Filters */}
       <div className="row gap wrap" style={{ marginBottom: 8 }}>
-        <div className="seg">
+        <div className="seg seg-scroll">
           <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
           {SCHOOLS.map(sch=>(
             <button key={sch} className={'seg-btn' + (school===sch?' on':'')} onClick={()=>setSchool(sch)}>{sch}</button>
           ))}
         </div>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…" style={{ flex:1, minWidth:220 }}/>
-        <div className="row gap" style={{ alignItems:'center' }}>
-          <span className="muted">Sort</span>
-          <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
-            <option value="first">First Name</option>
-            <option value="last">Last Name</option>
-          </select>
+        <div className="stack-sm">
+          <input className="w-full" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…"/>
+          <div className="row gap sort-row">
+            <span className="muted">Sort</span>
+            <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
+              <option value="first">First Name</option>
+              <option value="last">Last Name</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Filtered counts (under filters) */}
-      <div className="row gap" style={{ marginBottom: 12 }}>
+      {/* Counts */}
+      <div className="row gap wrap counts-row">
         <span className="chip">To Pick <b>{counts.not_picked}</b></span>
         <span className="chip">Picked <b>{counts.picked}</b></span>
         <span className="chip">Arrived <b>{counts.arrived}</b></span>
@@ -135,8 +130,7 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
         <span className="chip">Skipped <b>{counts.skipped}</b></span>
       </div>
 
-      <div style={twoCol}>
-        {/* Mark Skip Today */}
+      <div className="two-col">
         <div className="card">
           <h3>Mark Skip Today</h3>
           {canSkip.length===0 ? <div className="muted">No students eligible to skip.</div> : (
@@ -145,13 +139,12 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
                 key={s.id}
                 s={s}
                 subtitle={subtitleFor(s, roster[s.id], rosterTimes[s.id])}
-                actions={<button className="btn" onClick={()=>act(s.id,'skipped')}>Skip Today</button>}
+                actions={<button className="btn btn-mobile" onClick={()=>act(s.id,'skipped')}>Skip Today</button>}
               />
             ))
           )}
         </div>
 
-        {/* Skipped Today */}
         <div className="card">
           <h3>Skipped Today</h3>
           {skipped.length===0 ? <div className="muted">No students skipped.</div> : (
@@ -160,15 +153,34 @@ export default function SkipPage({ students, roster, rosterTimes, onSet }: Props
                 key={s.id}
                 s={s}
                 subtitle={subtitleFor(s, roster[s.id], rosterTimes[s.id])}
-                actions={<button className="btn" onClick={()=>act(s.id,'not_picked')}>Unskip Today</button>}
+                actions={<button className="btn btn-mobile" onClick={()=>act(s.id,'not_picked')}>Unskip Today</button>}
               />
             ))
           )}
         </div>
       </div>
 
-      {/* chip styles */}
+      {/* Mobile CSS helpers */}
       <style>{`
+        .two-col { display:grid; grid-template-columns: 1fr; gap:16px; }
+        @media (min-width: 768px) { .two-col { grid-template-columns: 1fr 1fr; } }
+
+        .seg-scroll { overflow-x:auto; white-space:nowrap; padding-bottom:4px; }
+
+        .stack-sm { display:flex; flex-direction:column; gap:8px; flex:1; min-width:220px; }
+        .sort-row { align-items:center; }
+
+        .counts-row { margin: 10px 0 14px; }
+
+        .sd-card.sd-card-row { display:flex; gap:12px; align-items:center; }
+        .sd-card-main { min-width:0; flex:1; }
+        .sd-card-actions { display:flex; gap:8px; margin-left:auto; }
+        @media (max-width: 767px) {
+          .sd-card.sd-card-row { flex-direction:column; align-items:stretch; }
+          .sd-card-actions { margin-left:0; }
+          .btn-mobile { width:100%; min-height:40px; }
+        }
+
         .chip {
           display:inline-flex; align-items:center; gap:6px;
           padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
