@@ -6,14 +6,14 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
-  globalCounts: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
+  // optional: ignored; page computes filtered counts locally
+  globalCounts?: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type SortKey = 'first' | 'last'
 const SCHOOLS = ['Bain', 'QG', 'MHE', 'MC'] as const
 
 function nameOf(s: StudentRow) { return `${s.first_name} ${s.last_name}` }
-
 function fmtEST(iso?: string) {
   if (!iso) return ''
   try {
@@ -30,7 +30,6 @@ function subtitleFor(s: StudentRow, st: Status | undefined, t?: string) {
   }
   return base
 }
-
 function StudentRowCard({ s, subtitle, actions }:{
   s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
 }) {
@@ -45,7 +44,7 @@ function StudentRowCard({ s, subtitle, actions }:{
   )
 }
 
-export default function SkipPage({ students, roster, rosterTimes, onSet, globalCounts }: Props) {
+export default function SkipPage({ students, roster, rosterTimes, onSet }: Props) {
   const [school, setSchool] = useState<string>('All')
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('first')
@@ -74,18 +73,35 @@ export default function SkipPage({ students, roster, rosterTimes, onSet, globalC
     return true
   }, [school, q])
 
-  // Eligible to mark skip: only not_picked
+  // Filtered universe
+  const filtered = useMemo(() => sorted.filter(matches), [sorted, matches])
+
+  // Filtered-counts
+  const counts = useMemo(() => {
+    let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
+    for (const s of filtered) {
+      const st = roster[s.id] ?? 'not_picked'
+      if (st === 'picked') picked++
+      else if (st === 'arrived') arrived++
+      else if (st === 'checked') checked++
+      else if (st === 'skipped') skipped++
+      else not_picked++
+    }
+    return { not_picked, picked, arrived, checked, skipped }
+  }, [filtered, roster])
+
+  // Panels
   const canSkip = useMemo(
-    () => sorted.filter(s => {
+    () => filtered.filter(s => {
       const st = roster[s.id]
-      return (!st || st==='not_picked') && matches(s)
+      return (!st || st==='not_picked')
     }),
-    [sorted, roster, matches]
+    [filtered, roster]
   )
 
   const skipped = useMemo(
-    () => sorted.filter(s => roster[s.id]==='skipped' && matches(s)),
-    [sorted, roster, matches]
+    () => filtered.filter(s => roster[s.id]==='skipped'),
+    [filtered, roster]
   )
 
   const twoCol: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, alignItems:'start' }
@@ -110,13 +126,13 @@ export default function SkipPage({ students, roster, rosterTimes, onSet, globalC
         </div>
       </div>
 
-      {/* Global roll-up counts (always visible, under filters) */}
+      {/* Filtered counts (under filters) */}
       <div className="row gap" style={{ marginBottom: 12 }}>
-        <span className="chip">To Pick <b>{globalCounts.not_picked}</b></span>
-        <span className="chip">Picked <b>{globalCounts.picked}</b></span>
-        <span className="chip">Arrived <b>{globalCounts.arrived}</b></span>
-        <span className="chip">Checked Out <b>{globalCounts.checked}</b></span>
-        <span className="chip">Skipped <b>{globalCounts.skipped}</b></span>
+        <span className="chip">To Pick <b>{counts.not_picked}</b></span>
+        <span className="chip">Picked <b>{counts.picked}</b></span>
+        <span className="chip">Arrived <b>{counts.arrived}</b></span>
+        <span className="chip">Checked Out <b>{counts.checked}</b></span>
+        <span className="chip">Skipped <b>{counts.skipped}</b></span>
       </div>
 
       <div style={twoCol}>

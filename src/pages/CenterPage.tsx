@@ -7,7 +7,8 @@ type Props = {
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
   inferPrevStatus: (s: StudentRow) => 'picked' | 'not_picked'
-  globalCounts: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
+  // optional: ignored; page now computes filtered counts locally
+  globalCounts?: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
 }
 
 type CenterTab = 'in' | 'out'
@@ -72,7 +73,7 @@ function Modal({ open, title, onClose, children }:{
 }
 
 export default function CenterPage({
-  students, roster, rosterTimes, onSet, inferPrevStatus, globalCounts
+  students, roster, rosterTimes, onSet, inferPrevStatus
 }: Props) {
   const [tab, setTab] = useState<CenterTab>('in')
   const [school, setSchool] = useState<string>('All')
@@ -129,24 +130,42 @@ export default function CenterPage({
     return true
   }, [school, q])
 
+  // Filtered universe
+  const filtered = useMemo(() => sorted.filter(matches), [sorted, matches])
+
+  // Filtered-counts (respect filters)
+  const counts = useMemo(() => {
+    let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
+    for (const s of filtered) {
+      const st = roster[s.id] ?? 'not_picked'
+      if (st === 'picked') picked++
+      else if (st === 'arrived') arrived++
+      else if (st === 'checked') checked++
+      else if (st === 'skipped') skipped++
+      else not_picked++
+    }
+    return { not_picked, picked, arrived, checked, skipped }
+  }, [filtered, roster])
+
+  // Panels from filtered
   const pickedFromBus = useMemo(
-    () => sorted.filter(s => roster[s.id]==='picked' && matches(s)),
-    [sorted, roster, matches]
+    () => filtered.filter(s => roster[s.id]==='picked'),
+    [filtered, roster]
   )
   const directCheckIn = useMemo(
-    () => sorted.filter(s => {
+    () => filtered.filter(s => {
       const st = roster[s.id]
-      return (!st || st==='not_picked') && matches(s)
+      return !st || st==='not_picked'
     }),
-    [sorted, roster, matches]
+    [filtered, roster]
   )
   const arrived = useMemo(
-    () => sorted.filter(s => roster[s.id]==='arrived' && matches(s)),
-    [sorted, roster, matches]
+    () => filtered.filter(s => roster[s.id]==='arrived'),
+    [filtered, roster]
   )
   const checkedOut = useMemo(
-    () => sorted.filter(s => roster[s.id]==='checked' && matches(s)),
-    [sorted, roster, matches]
+    () => filtered.filter(s => roster[s.id]==='checked'),
+    [filtered, roster]
   )
 
   const subtitleFor = (s: StudentRow) => {
@@ -181,13 +200,13 @@ export default function CenterPage({
         </div>
       </div>
 
-      {/* Global roll-up counts (always visible, under filters) */}
+      {/* Filtered counts (under filters) */}
       <div className="row gap" style={{ marginBottom: 12 }}>
-        <span className="chip">To Pick <b>{globalCounts.not_picked}</b></span>
-        <span className="chip">Picked <b>{globalCounts.picked}</b></span>
-        <span className="chip">Arrived <b>{globalCounts.arrived}</b></span>
-        <span className="chip">Checked Out <b>{globalCounts.checked}</b></span>
-        <span className="chip">Skipped <b>{globalCounts.skipped}</b></span>
+        <span className="chip">To Pick <b>{counts.not_picked}</b></span>
+        <span className="chip">Picked <b>{counts.picked}</b></span>
+        <span className="chip">Arrived <b>{counts.arrived}</b></span>
+        <span className="chip">Checked Out <b>{counts.checked}</b></span>
+        <span className="chip">Skipped <b>{counts.skipped}</b></span>
       </div>
 
       {/* Tabs */}
