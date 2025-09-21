@@ -260,6 +260,21 @@ export default function App() {
     [pickedEverToday]
   )
 
+  /** ---------- Global roll-up counts (active students only) ---------- */
+  const globalCounts = useMemo(() => {
+    const ids = students.filter(s => s.active).map(s => s.id)
+    let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
+    for (const id of ids) {
+      const st = roster[id] ?? 'not_picked'
+      if (st === 'picked') picked++
+      else if (st === 'arrived') arrived++
+      else if (st === 'checked') checked++
+      else if (st === 'skipped') skipped++
+      else not_picked++
+    }
+    return { not_picked, picked, arrived, checked, skipped }
+  }, [students, roster])
+
   const estHeaderDate = useMemo(() => todayKeyEST(), [])
 
   /** ---------- If not logged in, show Auth ---------- */
@@ -269,20 +284,37 @@ export default function App() {
   return (
     <div className="container">
       {/* Top Nav */}
-      <div className="row gap wrap" style={{ marginBottom: 8 }}>
+      <div className="row gap wrap" style={{ marginBottom: 6 }}>
         <div className="seg">
           <button className={'seg-btn' + (page === 'bus' ? ' on' : '')} onClick={() => setPage('bus')}>Bus</button>
           <button className={'seg-btn' + (page === 'center' ? ' on' : '')} onClick={() => setPage('center')}>Center</button>
           <button className={'seg-btn' + (page === 'skip' ? ' on' : '')} onClick={() => setPage('skip')}>Skip</button>
         </div>
         <div className="grow" />
-        <div className="row gap">
-          <div className="muted">Sunny Days — {estHeaderDate}</div>
+        <div className="row gap" style={{ alignItems:'center' }}>
+          {/* compact chips next to date */}
+          <span className="chip">To Pick <b>{globalCounts.not_picked}</b></span>
+          <span className="chip">Picked <b>{globalCounts.picked}</b></span>
+          <span className="chip">Arrived <b>{globalCounts.arrived}</b></span>
+          <span className="chip">Checked Out <b>{globalCounts.checked}</b></span>
+          <span className="chip">Skipped <b>{globalCounts.skipped}</b></span>
+
+          <div className="muted" style={{ marginLeft: 8 }}>Sunny Days — {estHeaderDate}</div>
           <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
-          <div className="muted" style={{ marginLeft: 8 }}>build: v1.1-realtime</div>
+          <div className="muted" style={{ marginLeft: 8 }}>build: v1.2-counts</div>
         </div>
       </div>
+
+      {/* lightweight chip styling */}
+      <style>{`
+        .chip {
+          display:inline-flex; align-items:center; gap:6px;
+          padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
+          font-size:12px; background:#fff;
+        }
+        .chip b { font-weight:600 }
+      `}</style>
 
       {/* Pages */}
       {page === 'bus' && (
