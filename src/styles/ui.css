@@ -175,3 +175,43 @@ html, body {
   align-items: center;
 }
 .counts { margin-top: 6px; }
+
+/* --- Student card layout: right-align actions, keep text left --- */
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;        /* comfortable spacing between meta and actions */
+}
+
+.card-row .meta {
+  flex: 1;          /* take remaining space */
+  min-width: 0;     /* allow text to wrap nicely */
+}
+
+.card-row .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Ensure Bus/Center content aligns with the same gutter as the toolbar */
+.page-body {
+  max-width: var(--page-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-gutter-md);
+  padding-right: var(--page-gutter-md);
+}
+
+@media (max-width: 767px) {
+  .page-body {
+    padding-left: var(--page-gutter-sm);
+    padding-right: var(--page-gutter-sm);
+  }
+}
+@media (min-width: 1280px) {
+  .page-body {
+    padding-left: var(--page-gutter-lg);
+    padding-right: var(--page-gutter-lg);
+  }
+}
