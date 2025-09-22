@@ -54,7 +54,7 @@ function CountsBar({
   }, [students, roster, schoolSel])
 
   return (
-    <div className="row gap wrap" style={{ marginTop: 8, marginBottom: 8 }}>
+    <div className="row gap wrap counts">
       <span className="badge">To Pick <b>{counts.toPick}</b></span>
       <span className="badge">Picked <b>{counts.picked}</b></span>
       <span className="badge">Arrived <b>{counts.arrived}</b></span>
@@ -122,39 +122,39 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
 
   return (
     <div className="page">
-      {/* Page-level school filter, search, sort (same layout as Skip) */}
-      <div className="row gap wrap" style={{ marginBottom: 8 }}>
-        <div className="seg seg-scroll">
-          {SCHOOL_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              className={`seg-btn ${schoolSel === f.key ? 'active' : ''}`}
-              onClick={() => setSchoolSel(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
+      {/* Toolbar + counts (same structure as Skip) */}
+      <div className="toolbar-bg">
+        <div className="toolbar row gap wrap">
+          <div className="seg seg-scroll">
+            {SCHOOL_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                className={`seg-btn ${schoolSel === f.key ? 'active' : ''}`}
+                onClick={() => setSchoolSel(f.key)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <input
+            className="search"
+            placeholder="Search student…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+
+          <div className="row gap" style={{ marginLeft: 'auto' }}>
+            <label className="muted">Sort</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+              <option value="first">First Name</option>
+              <option value="last">Last Name</option>
+            </select>
+          </div>
         </div>
 
-        <input
-          className="search"
-          placeholder="Search student…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
-
-        <div className="row gap" style={{ marginLeft: 'auto' }}>
-          <label className="muted">Sort</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
-            <option value="first">First Name</option>
-            <option value="last">Last Name</option>
-          </select>
-        </div>
+        <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
       </div>
-
-      {/* Global counts respecting the selected school */}
-      <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
 
       <div className="two-col">
         <div className="card">

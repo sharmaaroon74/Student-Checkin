@@ -163,3 +163,15 @@ html, body {
     padding-right: var(--page-gutter-lg);
   }
 }
+
+/* Toolbar area (same background strip as Skip) */
+.toolbar-bg {
+  background: #eceff4;          /* subtle bar under the toolbar */
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.toolbar {
+  align-items: center;
+}
+.counts { margin-top: 6px; }
