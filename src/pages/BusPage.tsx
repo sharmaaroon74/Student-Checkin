@@ -29,6 +29,41 @@ const SCHOOL_FILTERS: Array<{ key: string; label: string }> = [
   { key: 'MC', label: 'MC' },
 ]
 
+function CountsBar({
+  students,
+  roster,
+  schoolSel,
+}: {
+  students: StudentRow[]
+  roster: Record<string, Status>
+  schoolSel: string
+}) {
+  const counts = useMemo(() => {
+    let toPick = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
+    for (const s of students) {
+      if (!s.active) continue
+      if (schoolSel !== 'All' && s.school !== schoolSel) continue
+      const st = roster[s.id] ?? 'not_picked'
+      if (st === 'not_picked') toPick++
+      else if (st === 'picked') picked++
+      else if (st === 'arrived') arrived++
+      else if (st === 'checked') checked++
+      else if (st === 'skipped') skipped++
+    }
+    return { toPick, picked, arrived, checked, skipped }
+  }, [students, roster, schoolSel])
+
+  return (
+    <div className="row gap wrap" style={{ marginTop: 8, marginBottom: 8 }}>
+      <span className="badge">To Pick <b>{counts.toPick}</b></span>
+      <span className="badge">Picked <b>{counts.picked}</b></span>
+      <span className="badge">Arrived <b>{counts.arrived}</b></span>
+      <span className="badge">Checked <b>{counts.checked}</b></span>
+      <span className="badge">Skipped <b>{counts.skipped}</b></span>
+    </div>
+  )
+}
+
 export default function BusPage({ students, roster, rosterTimes, onSet }: Props) {
   const [schoolSel, setSchoolSel] = useState<string>('All')
   const [q, setQ] = useState('')
@@ -71,11 +106,8 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
     const ql = q.trim().toLowerCase()
     const list = students.filter((s) => {
       if (!s.active) return false
-      // show all skipped (even if outside BUS_SCHOOLS) or keep BUS only?
-      // You asked specifically for BUS page to show skipped list; historically we show all skipped.
       const st = roster[s.id]
       if (st !== 'skipped') return false
-
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
@@ -90,7 +122,40 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
 
   return (
     <div className="page">
-      {/* Filters/Search/Sort are provided by App shell, so this page only renders panels */}
+      {/* Page-level school filter, search, sort (same layout as Skip) */}
+      <div className="row gap wrap" style={{ marginBottom: 8 }}>
+        <div className="seg seg-scroll">
+          {SCHOOL_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              className={`seg-btn ${schoolSel === f.key ? 'active' : ''}`}
+              onClick={() => setSchoolSel(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <input
+          className="search"
+          placeholder="Search student…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ minWidth: 260 }}
+        />
+
+        <div className="row gap" style={{ marginLeft: 'auto' }}>
+          <label className="muted">Sort</label>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+            <option value="first">First Name</option>
+            <option value="last">Last Name</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Global counts respecting the selected school */}
+      <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
+
       <div className="two-col">
         <div className="card">
           <h3 className="title">Bus Pickup</h3>
@@ -136,37 +201,6 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
               ))}
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Local controls (optional) – if your global toolbar already has these, omit this block */}
-      <div style={{ marginTop: 16 }} className="row gap wrap">
-        <div className="seg seg-scroll">
-          {SCHOOL_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              className={`seg-btn ${schoolSel === f.key ? 'active' : ''}`}
-              onClick={() => setSchoolSel(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-
-        <input
-          className="search"
-          placeholder="Search student…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
-
-        <div className="row gap" style={{ marginLeft: 'auto' }}>
-          <label className="muted">Sort</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
-            <option value="first">First Name</option>
-            <option value="last">Last Name</option>
-          </select>
         </div>
       </div>
     </div>

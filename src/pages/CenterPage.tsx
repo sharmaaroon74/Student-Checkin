@@ -6,13 +6,12 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
-  /** Used for one-click Undo on Checkout panel, defaults if not provided */
   inferPrevStatus?: (s: StudentRow) => Status
 }
 
 /** Allowed School_Year values for Direct Check-in (No Bus) */
 const DIRECT_YEARS = new Set([
-  'B', 'H',                       // before-school / holiday allowed here
+  'B', 'H',
   'FT - A',
   'FT - B/A',
   'PT3 - A - TWR',
@@ -39,6 +38,41 @@ function formatStatusWithTime(st: Status | undefined, iso?: string) {
   return `${st === 'picked' ? 'Picked' : st === 'arrived' ? 'Arrived' : 'Checked Out'} : ${h}`
 }
 
+function CountsBar({
+  students,
+  roster,
+  schoolSel,
+}: {
+  students: StudentRow[]
+  roster: Record<string, Status>
+  schoolSel: string
+}) {
+  const counts = useMemo(() => {
+    let toPick = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
+    for (const s of students) {
+      if (!s.active) continue
+      if (schoolSel !== 'All' && s.school !== schoolSel) continue
+      const st = roster[s.id] ?? 'not_picked'
+      if (st === 'not_picked') toPick++
+      else if (st === 'picked') picked++
+      else if (st === 'arrived') arrived++
+      else if (st === 'checked') checked++
+      else if (st === 'skipped') skipped++
+    }
+    return { toPick, picked, arrived, checked, skipped }
+  }, [students, roster, schoolSel])
+
+  return (
+    <div className="row gap wrap" style={{ marginTop: 8, marginBottom: 8 }}>
+      <span className="badge">To Pick <b>{counts.toPick}</b></span>
+      <span className="badge">Picked <b>{counts.picked}</b></span>
+      <span className="badge">Arrived <b>{counts.arrived}</b></span>
+      <span className="badge">Checked <b>{counts.checked}</b></span>
+      <span className="badge">Skipped <b>{counts.skipped}</b></span>
+    </div>
+  )
+}
+
 export default function CenterPage({
   students,
   roster,
@@ -55,20 +89,15 @@ export default function CenterPage({
     const ql = q.trim().toLowerCase()
     const list = students.filter((s) => {
       if (!s.active) return false
-      // from Bus: must be picked now
       const st = roster[s.id]
       if (st !== 'picked') return false
-
-      // school filter at page level (single-select)
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
-
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
         if (!full.includes(ql)) return false
       }
       return true
     })
-
     list.sort((a, b) =>
       sortBy === 'first'
         ? a.first_name.localeCompare(b.first_name)
@@ -82,21 +111,15 @@ export default function CenterPage({
     const list = students.filter((s) => {
       if (!s.active) return false
       if (!DIRECT_YEARS.has(s.school_year ?? '')) return false
-
-      // exclude those already picked/arrived/checked/skipped — direct is for kids coming without bus
       const st = roster[s.id]
       if (st === 'picked' || st === 'arrived' || st === 'checked' || st === 'skipped') return false
-
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
-
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
         if (!full.includes(ql)) return false
       }
-      // either undefined or 'not_picked'
       return true
     })
-
     list.sort((a, b) =>
       sortBy === 'first'
         ? a.first_name.localeCompare(b.first_name)
@@ -142,7 +165,7 @@ export default function CenterPage({
   return (
     <div className="page">
       {/* Page-level school filter, search, sort */}
-      <div className="row gap wrap" style={{ marginBottom: 12 }}>
+      <div className="row gap wrap" style={{ marginBottom: 8 }}>
         <div className="seg seg-scroll">
           {SCHOOL_FILTERS.map((f) => (
             <button
@@ -171,6 +194,9 @@ export default function CenterPage({
           </select>
         </div>
       </div>
+
+      {/* Global counts respecting the selected school */}
+      <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
 
       {/* Tabs */}
       <div className="seg" style={{ marginBottom: 12 }}>
@@ -220,7 +246,6 @@ export default function CenterPage({
                     </div>
                     <div className="sd-card-actions">
                       <button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>
-                      {/* as requested earlier, no Undo here */}
                     </div>
                   </div>
                 ))}
@@ -245,7 +270,6 @@ export default function CenterPage({
                       </div>
                     </div>
                     <div className="sd-card-actions">
-                      {/* Your existing modal flow for selecting pickup person goes here; keeping simple */}
                       <button className="btn primary" onClick={() => onSet(s.id, 'checked')}>Checkout</button>
                       <button className="btn" onClick={() => onSet(s.id, inferPrevStatus(s))}>Undo</button>
                     </div>
@@ -270,7 +294,6 @@ export default function CenterPage({
                       </div>
                     </div>
                     <div className="sd-card-actions">
-                      {/* As requested earlier, provide Undo to move back to Arrived */}
                       <button className="btn" onClick={() => onSet(s.id, 'arrived')}>Undo</button>
                     </div>
                   </div>
