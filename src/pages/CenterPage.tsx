@@ -9,7 +9,6 @@ type Props = {
   inferPrevStatus?: (s: StudentRow) => Status
 }
 
-/** Allowed School_Year values for Direct Check-in (No Bus) */
 const DIRECT_YEARS = new Set([
   'B', 'H',
   'FT - A',
@@ -39,14 +38,8 @@ function formatStatusWithTime(st: Status | undefined, iso?: string) {
 }
 
 function CountsBar({
-  students,
-  roster,
-  schoolSel,
-}: {
-  students: StudentRow[]
-  roster: Record<string, Status>
-  schoolSel: string
-}) {
+  students, roster, schoolSel,
+}: { students: StudentRow[]; roster: Record<string, Status>; schoolSel: string }) {
   const counts = useMemo(() => {
     let toPick = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
     for (const s of students) {
@@ -63,7 +56,7 @@ function CountsBar({
   }, [students, roster, schoolSel])
 
   return (
-    <div className="row gap wrap counts">
+    <div className="row gap wrap" style={{ marginTop: 6 }}>
       <span className="badge">To Pick <b>{counts.toPick}</b></span>
       <span className="badge">Picked <b>{counts.picked}</b></span>
       <span className="badge">Arrived <b>{counts.arrived}</b></span>
@@ -74,10 +67,7 @@ function CountsBar({
 }
 
 export default function CenterPage({
-  students,
-  roster,
-  rosterTimes,
-  onSet,
+  students, roster, rosterTimes, onSet,
   inferPrevStatus = (s) => (roster[s.id] === 'arrived' ? 'picked' : 'not_picked'),
 }: Props) {
   const [schoolSel, setSchoolSel] = useState<string>('All')
@@ -164,9 +154,14 @@ export default function CenterPage({
 
   return (
     <div className="page">
-      {/* Toolbar + counts (match Skip visual) */}
-      <div className="toolbar-bg">
-        <div className="toolbar row gap wrap">
+      {/* INLINE toolbar background so the change is guaranteed visible */}
+      <div style={{
+        background: '#eceff4',
+        borderRadius: 12,
+        padding: '10px 12px',
+        marginBottom: 12,
+      }}>
+        <div className="row gap wrap" style={{ alignItems: 'center' }}>
           <div className="seg seg-scroll">
             {SCHOOL_FILTERS.map((f) => (
               <button
@@ -198,7 +193,6 @@ export default function CenterPage({
         <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
       </div>
 
-      {/* Tabs */}
       <div className="seg" style={{ marginBottom: 12 }}>
         <button className={`seg-btn ${tab === 'checkin' ? 'active' : ''}`} onClick={() => setTab('checkin')}>Check-in</button>
         <button className={`seg-btn ${tab === 'checkout' ? 'active' : ''}`} onClick={() => setTab('checkout')}>Checkout</button>
