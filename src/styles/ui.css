@@ -1,52 +1,152 @@
-:root { --bg:#f7f8fb; --card:#fff; --text:#111; --muted:#6b7280; --brand:#0f172a; --brand-ghost:#e5e7eb; --b:#e6e8ef; }
-*{box-sizing:border-box}
-html,body,#root{height:100%}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";background:var(--bg);color:var(--text)}
+:root {
+  --bg:#f7f8fb;
+  --card:#fff;
+  --text:#111;
+  --muted:#6b7280;
+  --brand:#0f172a;
+  --brand-ghost:#e5e7eb;
+  --b:#e6e8ef;
 
-.container{max-width:1100px;margin:12px auto;padding:0 12px}
-.card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:14px}
-.row{display:flex;align-items:center;gap:8px}
-.wrap{flex-wrap:wrap}
-.gap{gap:12px}
-.grow{flex:1}
-.section-title{font-size:20px;font-weight:700;margin:12px 0 6px}
-.list{display:grid;gap:8px}
-.card-row{padding:10px;border:1px solid var(--b);border-radius:12px;background:#fff}
+  --page-gutter-sm: 12px;
+  --page-gutter-md: 16px;
+  --page-gutter-lg: 24px;
+  --page-max-width: 1280px; /* tune if you prefer */
+}
 
-.heading{font-size:20px;font-weight:700}
-.label{font-size:14px;color:var(--muted)}
-.sub{font-size:12px;color:var(--muted)}
-.muted{color:var(--muted);font-size:14px}
+* { box-sizing:border-box }
+html,body,#root { height:100% }
+body {
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
+  background:var(--bg);
+  color:var(--text);
+}
 
-.btn{border:1px solid var(--b);background:#fff;border-radius:10px;padding:6px 12px;cursor:pointer}
-.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
-.btn:disabled{opacity:.6;cursor:not-allowed}
-input,select{border:1px solid var(--b);background:#fff;border-radius:10px;padding:8px 10px}
-input[type="datetime-local"]{padding:6px 10px}
+/* Containers / layout */
+.container { max-width:1100px; margin:12px auto; padding:0 12px }
+.card { background:var(--card); border:1px solid var(--b); border-radius:14px; padding:14px }
+.row { display:flex; align-items:center; gap:8px }
+.wrap { flex-wrap:wrap }
+.gap { gap:12px }
+.grow { flex:1 }
+.section-title { font-size:20px; font-weight:700; margin:12px 0 6px }
+.list { display:grid; gap:8px }
+.card-row { padding:10px; border:1px solid var(--b); border-radius:12px; background:#fff }
 
-.chip{border:1px solid var(--b);background:#fff;border-radius:999px;padding:6px 10px}
-.chip-on{background:var(--brand);color:#fff;border-color:var(--brand)}
+/* Typography */
+.heading { font-size:20px; font-weight:700 }
+.label { font-size:14px; color:var(--muted) }
+.sub { font-size:12px; color:var(--muted) }
+.muted { color:var(--muted); font-size:14px }
 
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50}
-.modal-card{width:min(720px,92vw);background:#fff;border-radius:16px;border:1px solid var(--b);padding:12px}
-.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.modal-body{display:grid;gap:8px}
-.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+/* Buttons */
+.btn {
+  border:1px solid var(--b);
+  background:#fff;
+  border-radius:10px;
+  padding:6px 12px;
+  cursor:pointer;
+}
+.btn.primary {
+  background:var(--brand);
+  color:#fff;
+  border-color:var(--brand);
+}
+.btn:disabled { opacity:.6; cursor:not-allowed }
 
-.grid{display:grid;gap:8px}
-.grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-/* two-column layout helpers */
-.columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-@media (max-width: 900px){ .columns{grid-template-columns:1fr} }
-.subcard{border:1px solid var(--b);border-radius:12px;background:#fff;padding:12px}
-/* segmented single-select (like Skip page) */
-.seg{display:flex;gap:6px;background:var(--brand-ghost);padding:4px;border-radius:999px}
-.seg-btn{border:1px solid transparent;background:transparent;padding:6px 10px;border-radius:999px}
-.seg-btn.on{background:#fff;border-color:var(--b)}
-/* (optional) make modal action buttons wrap nicely on small screens */
-.row.wrap { flex-wrap: wrap; }
+/* Inputs */
+input,select {
+  border:1px solid var(--b);
+  background:#fff;
+  border-radius:10px;
+  padding:8px 10px;
+}
+input[type="datetime-local"] { padding:6px 10px }
 
-/* === Mobile polish with scroll hint === */
+/* Chips */
+.chip {
+  border:1px solid var(--b);
+  background:#fff;
+  border-radius:999px;
+  padding:6px 10px;
+}
+.chip-on {
+  background:var(--brand);
+  color:#fff;
+  border-color:var(--brand);
+}
+
+/* Modal */
+.modal {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.4);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:50;
+}
+.modal-card {
+  width:min(720px,92vw);
+  background:#fff;
+  border-radius:16px;
+  border:1px solid var(--b);
+  padding:12px;
+}
+.modal-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:10px;
+}
+.modal-body { display:grid; gap:8px }
+.modal-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:8px }
+
+/* Grids / columns */
+.grid { display:grid; gap:8px }
+.grid-2 { grid-template-columns:repeat(2,minmax(0,1fr)) }
+.columns {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;
+}
+@media (max-width: 900px){
+  .columns { grid-template-columns:1fr }
+}
+.subcard { border:1px solid var(--b); border-radius:12px; background:#fff; padding:12px }
+
+/* Segmented controls (like Skip page) */
+.seg {
+  display:flex;
+  gap:6px;
+  background:var(--brand-ghost);
+  padding:4px;
+  border-radius:999px;
+}
+.seg-btn {
+  border:1px solid transparent;
+  background:transparent;
+  padding:6px 10px;
+  border-radius:999px;
+}
+.seg-btn.on {
+  background:#fff;
+  border-color:var(--b);
+}
+
+/* Row + actions (ensures buttons on the right) */
+.sd-row {
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.sd-row .sd-card-actions {
+  margin-left:auto;
+  display:inline-flex;
+  gap:8px;
+}
+
+/* Mobile polish with scroll hint */
 @media (max-width: 767px) {
   .two-col {
     display: grid;
@@ -56,21 +156,17 @@ input[type="datetime-local"]{padding:6px 10px}
     gap: 16px;
     scroll-snap-type: x mandatory;
     padding-bottom: 6px;
-    position: relative; /* allow hint overlays */
+    position: relative;
   }
-
   .two-col > .card {
     min-width: min(92vw, 420px);
     scroll-snap-align: start;
   }
-
-  /* Fading scroll hint */
   .two-col::before,
   .two-col::after {
     content: '';
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 0; bottom: 0;
     width: 24px;
     pointer-events: none;
     z-index: 10;
@@ -83,168 +179,70 @@ input[type="datetime-local"]{padding:6px 10px}
     right: 0;
     background: linear-gradient(to left, rgba(255,255,255,0.9), transparent);
   }
+  .two-col::-webkit-scrollbar { display: none }
 
-  /* Scrollbar hidden on iOS/Chrome */
-  .two-col::-webkit-scrollbar { display: none; }
-
-  /* Filters: scrollable segmented controls */
   .seg, .seg.seg-scroll {
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Larger buttons for easier taps */
   .sd-card-actions .btn,
   .sd-card-actions .btn.primary {
     min-height: 44px;
     padding: 10px 14px;
   }
 
-  .title { font-size: 16px; }
-  .muted { font-size: 12px; }
+  .title { font-size: 16px }
+  .muted { font-size: 12px }
 }
 
+/* Desktop layout */
 @media (min-width: 768px) {
   .two-col {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    overflow: visible;
-    position: static;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    overflow:visible;
+    position:static;
   }
   .two-col::before,
-  .two-col::after { display: none; }
+  .two-col::after { display:none }
 }
 
-/* --- Page container / gutters (restores the old padding) --- */
-:root {
-  --page-gutter-sm: 12px;
-  --page-gutter-md: 16px;
-  --page-gutter-lg: 24px;
-  --page-max-width: 1280px; /* tune if you prefer */
-}
-
-html, body {
-  background: #f6f7fb;           /* subtle app bg (optional; match your theme) */
-}
-
+/* Page container / gutters */
+html, body { background:#f6f7fb }
 .app-shell {
-  max-width: var(--page-max-width);
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: var(--page-gutter-md);
-  padding-right: var(--page-gutter-md);
-  padding-top: var(--page-gutter-md);
-  padding-bottom: var(--page-gutter-md);
+  max-width:var(--page-max-width);
+  margin-left:auto;
+  margin-right:auto;
+  padding-left:var(--page-gutter-md);
+  padding-right:var(--page-gutter-md);
+  padding-top:var(--page-gutter-md);
+  padding-bottom:var(--page-gutter-md);
 }
+.app-shell > .row { margin-left:0; margin-right:0 }
+.two-col { gap:16px }
 
-/* header row breathing room */
-.app-shell > .row {
-  margin-left: 0;
-  margin-right: 0;
-}
-
-/* keep two-column sections nicely spaced inside the container */
-.two-col {
-  gap: 16px;
-}
-
-/* responsive gutters */
-@media (max-width: 767px) {
+@media (max-width:767px){
   .app-shell {
-    padding-left: var(--page-gutter-sm);
-    padding-right: var(--page-gutter-sm);
+    padding-left:var(--page-gutter-sm);
+    padding-right:var(--page-gutter-sm);
   }
 }
-@media (min-width: 1280px) {
+@media (min-width:1280px){
   .app-shell {
-    padding-left: var(--page-gutter-lg);
-    padding-right: var(--page-gutter-lg);
+    padding-left:var(--page-gutter-lg);
+    padding-right:var(--page-gutter-lg);
   }
 }
 
-/* Toolbar area (same background strip as Skip) */
+/* Toolbar (same background strip as Skip) */
 .toolbar-bg {
-  background: #eceff4;          /* subtle bar under the toolbar */
-  border-radius: 12px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
+  background:#eceff4;
+  border-radius:12px;
+  padding:10px 12px;
+  margin-bottom:12px;
 }
-.toolbar {
-  align-items: center;
-}
-.counts { margin-top: 6px; }
-
-/* === Minimal, non-breaking tweaks for Bus + Center === */
-
-/* Make student rows lay out as "info... | actions" with zero TSX changes */
-.card-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* Push the first button (or the .sd-card-actions group) to the right edge */
-.card-row > .btn,
-.card-row .sd-card-actions {
-  margin-left: auto;
-}
-
-/* If a row has multiple buttons grouped in .sd-card-actions, keep them tidy */
-.sd-card-actions {
-  display: inline-flex;
-  gap: 8px;
-}
-
-/* Slightly firmer align for long names so the action doesn’t wrap down */
-.card-row > :first-child {
-  min-width: 0;           /* allow text to truncate instead of pushing buttons */
-}
-
-/* Optional: prevent accidental width jitter on hover */
-.card-row .btn {
-  white-space: nowrap;
-}
-
-
-/* === A) Align panel borders with the toolbar on all pages === */
-/* Unify .container to the same width/gutters as .app-shell so edges line up */
-.container {
-  max-width: var(--page-max-width);
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: var(--page-gutter-md);
-  padding-right: var(--page-gutter-md);
-}
-@media (max-width: 767px) {
-  .container {
-    padding-left: var(--page-gutter-sm);
-    padding-right: var(--page-gutter-sm);
-  }
-}
-@media (min-width: 1280px) {
-  .container {
-    padding-left: var(--page-gutter-lg);
-    padding-right: var(--page-gutter-lg);
-  }
-}
-
-/* === B) Make sure Center Check-in + Checkout rows right-align actions === */
-/* You already have .card-row rules; this reinforces rows inside subcards too. */
-.subcard .card-row {
-  display: flex;              /* in case a specific subcard missed the flex */
-  align-items: center;
-  gap: 12px;
-}
-.subcard .card-row > .btn,
-.subcard .card-row .sd-card-actions {
-  margin-left: auto;          /* push actions to the right edge */
-}
-.subcard .sd-card-actions {    /* tidy if multiple buttons (e.g., Checkout + Undo) */
-  display: inline-flex;
-  gap: 8px;
-}
-.subcard .card-row > :first-child {
-  min-width: 0;               /* allow text to shrink without wrapping buttons */
-}
+.toolbar { align-items:center }
+.counts { margin-top:6px }
