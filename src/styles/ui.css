@@ -116,3 +116,50 @@ input[type="datetime-local"]{padding:6px 10px}
   .two-col::before,
   .two-col::after { display: none; }
 }
+
+/* --- Page container / gutters (restores the old padding) --- */
+:root {
+  --page-gutter-sm: 12px;
+  --page-gutter-md: 16px;
+  --page-gutter-lg: 24px;
+  --page-max-width: 1280px; /* tune if you prefer */
+}
+
+html, body {
+  background: #f6f7fb;           /* subtle app bg (optional; match your theme) */
+}
+
+.app-shell {
+  max-width: var(--page-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-gutter-md);
+  padding-right: var(--page-gutter-md);
+  padding-top: var(--page-gutter-md);
+  padding-bottom: var(--page-gutter-md);
+}
+
+/* header row breathing room */
+.app-shell > .row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* keep two-column sections nicely spaced inside the container */
+.two-col {
+  gap: 16px;
+}
+
+/* responsive gutters */
+@media (max-width: 767px) {
+  .app-shell {
+    padding-left: var(--page-gutter-sm);
+    padding-right: var(--page-gutter-sm);
+  }
+}
+@media (min-width: 1280px) {
+  .app-shell {
+    padding-left: var(--page-gutter-lg);
+    padding-right: var(--page-gutter-lg);
+  }
+}
