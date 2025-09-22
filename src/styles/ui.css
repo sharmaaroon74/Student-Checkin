@@ -176,3 +176,33 @@ html, body {
 }
 .counts { margin-top: 6px; }
 
+/* === Minimal, non-breaking tweaks for Bus + Center === */
+
+/* Make student rows lay out as "info... | actions" with zero TSX changes */
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Push the first button (or the .sd-card-actions group) to the right edge */
+.card-row > .btn,
+.card-row .sd-card-actions {
+  margin-left: auto;
+}
+
+/* If a row has multiple buttons grouped in .sd-card-actions, keep them tidy */
+.sd-card-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* Slightly firmer align for long names so the action doesn’t wrap down */
+.card-row > :first-child {
+  min-width: 0;           /* allow text to truncate instead of pushing buttons */
+}
+
+/* Optional: prevent accidental width jitter on hover */
+.card-row .btn {
+  white-space: nowrap;
+}
