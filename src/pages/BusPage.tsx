@@ -4,11 +4,10 @@ import type { Status, StudentRow } from '../types'
 type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
-  rosterTimes: Record<string, string> // not used here; kept for signature parity
+  rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
 }
 
-// same eligibility logic you already had
 const BUS_SCHOOLS = new Set(['Bain', 'MC', 'MHE', 'QG'])
 const BUS_YEARS = new Set([
   'FT - A',
@@ -19,7 +18,7 @@ const BUS_YEARS = new Set([
   'PT3 - A - TWF',
 ])
 
-const SCHOOL_FILTERS: Array<{ key: string; label: string }> = [
+const SCHOOL_FILTERS = [
   { key: 'All', label: 'All' },
   { key: 'Bain', label: 'Bain' },
   { key: 'QG', label: 'QG' },
@@ -28,11 +27,10 @@ const SCHOOL_FILTERS: Array<{ key: string; label: string }> = [
 ]
 
 export default function BusPage({ students, roster, rosterTimes, onSet }: Props) {
-  const [schoolSel, setSchoolSel] = useState<string>('All')
+  const [schoolSel, setSchoolSel] = useState('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
 
-  // global counts (respect school filter + search)
   const counts = useMemo(() => {
     let toPick = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
     const ql = q.trim().toLowerCase()
@@ -40,13 +38,11 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
       if (!s.active) continue
       if (!BUS_SCHOOLS.has(s.school)) continue
       if (!BUS_YEARS.has(s.school_year ?? '')) continue
-
       if (schoolSel !== 'All' && s.school !== schoolSel) continue
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
         if (!full.includes(ql)) continue
       }
-
       const st = roster[s.id] ?? 'not_picked'
       if (st === 'not_picked') toPick++
       else if (st === 'picked') picked++
@@ -63,11 +59,9 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
       if (!s.active) return false
       if (!BUS_SCHOOLS.has(s.school)) return false
       if (!BUS_YEARS.has(s.school_year ?? '')) return false
-
       const st = roster[s.id]
       if (st === 'skipped' || st === 'arrived' || st === 'checked') return false
-      if (st === 'picked') return false // only “Not Picked” here
-
+      if (st === 'picked') return false
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
@@ -100,14 +94,14 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
 
   return (
     <div className="page container">
-      {/* TOP BAR — identical structure to Skip page */}
-      <div className="card" style={{ paddingBottom: 10 }}>
-        <div className="row gap wrap" style={{ alignItems: 'center' }}>
+      {/* === TOP BAR: same visual structure as Skip === */}
+      <div className="toolbar-bg">
+        <div className="row gap wrap toolbar">
           <div className="seg seg-scroll">
             {SCHOOL_FILTERS.map((f) => (
               <button
                 key={f.key}
-                className={`seg-btn ${schoolSel === f.key ? 'active' : ''}`}
+                className={`seg-btn ${schoolSel === f.key ? 'on' : ''}`}
                 onClick={() => setSchoolSel(f.key)}
               >
                 {f.label}
@@ -131,36 +125,32 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
           </div>
         </div>
 
-        {/* Global counts (inline under same bar) */}
-        <div className="row gap wrap" style={{ marginTop: 8 }}>
-          <span className="badge">To Pick <b>{counts.toPick}</b></span>
-          <span className="badge">Picked <b>{counts.picked}</b></span>
-          <span className="badge">Arrived <b>{counts.arrived}</b></span>
-          <span className="badge">Checked <b>{counts.checked}</b></span>
-          <span className="badge">Skipped <b>{counts.skipped}</b></span>
-          <span className="muted" style={{ marginLeft: 'auto' }}>build: ui-parity-3</span>
+        <div className="row gap wrap counts">
+          <span className="chip">To Pick <b>{counts.toPick}</b></span>
+          <span className="chip">Picked <b>{counts.picked}</b></span>
+          <span className="chip">Arrived <b>{counts.arrived}</b></span>
+          <span className="chip">Checked <b>{counts.checked}</b></span>
+          <span className="chip">Skipped <b>{counts.skipped}</b></span>
+          <span className="muted" style={{ marginLeft: 'auto' }}>build: ui-parity-4</span>
         </div>
       </div>
 
-      {/* Two columns — same as Skip */}
       <div className="two-col" style={{ marginTop: 12 }}>
         <div className="card">
-          <h3 className="title">Bus Pickup</h3>
+          <h3 className="heading">Bus Pickup</h3>
           {toPickup.length === 0 ? (
             <div className="muted">No students to pick up.</div>
           ) : (
-            <div className="vlist gap">
+            <div className="list">
               {toPickup.map((s) => (
-                <div key={s.id} className="item row between">
+                <div key={s.id} className="card-row row between">
                   <div>
                     <div className="name">{s.first_name} {s.last_name}</div>
-                    <div className="muted">School: {s.school} | Not Picked</div>
+                    <div className="sub">School: {s.school} | Not Picked</div>
                   </div>
-                  <div className="sd-card-actions">
-                    <button className="btn primary" onClick={() => onSet(s.id, 'picked')}>
-                      Mark Picked
-                    </button>
-                  </div>
+                  <button className="btn primary" onClick={() => onSet(s.id, 'picked')}>
+                    Mark Picked
+                  </button>
                 </div>
               ))}
             </div>
@@ -168,22 +158,20 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
         </div>
 
         <div className="card">
-          <h3 className="title">Skipped Today</h3>
+          <h3 className="heading">Skipped Today</h3>
           {skippedToday.length === 0 ? (
             <div className="muted">No skipped students.</div>
           ) : (
-            <div className="vlist gap">
+            <div className="list">
               {skippedToday.map((s) => (
-                <div key={s.id} className="item row between">
+                <div key={s.id} className="card-row row between">
                   <div>
                     <div className="name">{s.first_name} {s.last_name}</div>
-                    <div className="muted">School: {s.school} | Skipped</div>
+                    <div className="sub">School: {s.school} | Skipped</div>
                   </div>
-                  <div className="sd-card-actions">
-                    <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>
-                      Unskip Today
-                    </button>
-                  </div>
+                  <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>
+                    Unskip Today
+                  </button>
                 </div>
               ))}
             </div>
