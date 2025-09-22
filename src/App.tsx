@@ -7,12 +7,10 @@ import SkipPage from './pages/SkipPage'
 import Login from './Login'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 
-// --- Helpers ---
-type Page = 'bus' | 'center' | 'skip'
+type Page = 'bus' | 'center' | 'skip' // <-- ensure 'skip' included
 
 function todayKeyEST(): string {
   const now = new Date()
-  // en-CA yields YYYY-MM-DD
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
     year: 'numeric', month: '2-digit', day: '2-digit'
@@ -27,25 +25,21 @@ function todayESTLabel(): string {
   }).format(now)
 }
 
-// --- App ---
 export default function App() {
   const [page, setPage] = useState<Page>('bus')
   const [sessionReady, setSessionReady] = useState(false)
   const [isAuthed, setIsAuthed] = useState(false)
 
-  // Students shared across pages
   const [students, setStudents] = useState<StudentRow[]>([])
-
-  // Roster map (student_id -> status) and last-change time (student_id -> ISO string)
   const [roster, setRoster] = useState<Record<string, Status>>({})
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
 
   const rosterDateEST = todayKeyEST()
 
-  // Realtime roster + light polling
+  // Realtime + light polling fallback
   useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
 
-  // Auth wiring (email/password)
+  // Auth (email/password)
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -61,7 +55,6 @@ export default function App() {
     return () => { sub.subscription.unsubscribe() }
   }, [])
 
-  // Fetch students after auth
   useEffect(() => {
     if (!isAuthed) return
     fetchStudents().catch(() => {})
@@ -106,9 +99,8 @@ export default function App() {
     setRosterTimes(times)
   }
 
-  // RPC-first; fallback to direct upsert; then optimistic UI
+  // RPC-first; fallback upsert; optimistic UI
   async function handleSetStatus(studentId: string, st: Status, meta?: any) {
-    // 1) Try RPC
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
       p_student_id: studentId,
       p_status: st,
@@ -117,8 +109,6 @@ export default function App() {
 
     if (rpcErr) {
       console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
-
-      // 2) Fallback: upsert roster_status (requires RLS upsert policy)
       const { error: upsertErr } = await supabase
         .from('roster_status')
         .upsert(
@@ -130,13 +120,11 @@ export default function App() {
           },
           { onConflict: 'roster_date,student_id' }
         )
-
       if (upsertErr) {
         console.error('[roster_status upsert] error', upsertErr)
         return
       }
-
-      // Optional: best-effort logs insert (no `.catch` here)
+      // best-effort log (ok if RLS blocks)
       const { error: logErr } = await supabase.from('logs').insert({
         roster_date: rosterDateEST,
         student_id: studentId,
@@ -144,13 +132,9 @@ export default function App() {
         meta: meta ?? null,
         at: new Date().toISOString(),
       })
-      if (logErr) {
-        // Non-fatal — UI still updates via optimistic state + realtime
-        console.warn('[logs insert] ignored', logErr)
-      }
+      if (logErr) console.warn('[logs insert] ignored', logErr)
     }
 
-    // Optimistic UI
     setRoster(prev => ({ ...prev, [studentId]: st }))
     setRosterTimes(prev => ({ ...prev, [studentId]: new Date().toISOString() }))
   }
@@ -185,18 +169,43 @@ export default function App() {
       {/* Top nav + date + logout */}
       <div className="row wrap" style={{ marginBottom: 10, alignItems: 'center' }}>
         <div className="row gap">
-          <button className={`btn ${page==='bus'?'primary':''}`} onClick={()=>setPage('bus')}>Bus</button>
-          <button className={`btn ${page==='center'?'primary':''}`} onClick={()=>setPage('center')}>Sunny Days</button>
-          <button className={`btn ${page==='skip'?'primary':''}`} onClick={()=>setPage('skip')}>Skip</button>
+          <button
+            type="button"
+            className={`btn ${page==='bus'?'primary':''}`}
+            aria-current={page==='bus' ? 'page' : undefined}
+            onClick={() => setPage('bus')}
+          >
+            Bus
+          </button>
+
+          <button
+            type="button"
+            className={`btn ${page==='center'?'primary':''}`}
+            aria-current={page==='center' ? 'page' : undefined}
+            onClick={() => setPage('center')}
+          >
+            Sunny Days
+          </button>
+
+          <button
+            type="button"
+            className={`btn ${page==='skip'?'primary':''}`}
+            aria-current={page==='skip' ? 'page' : undefined}
+            onClick={() => setPage('skip')} // <-- ensure exactly 'skip'
+          >
+            Skip
+          </button>
+
           <div className="muted" style={{ marginLeft: 8 }}>{buildLabel}</div>
         </div>
+
         <div className="row gap" style={{ marginLeft: 'auto', alignItems: 'center' }}>
           <span className="chip">{todayESTLabel()}</span>
           <button className="btn" onClick={handleLogout}>Logout</button>
         </div>
       </div>
 
-      {/* Pages */}
+      {/* Render pages */}
       {page === 'bus' && (
         <BusPage
           students={students}
@@ -209,7 +218,7 @@ export default function App() {
         <CenterPage
           students={students}
           roster={roster}
-          rosterTimes={rosterTimes}  // <-- ensure CenterPage props include this
+          rosterTimes={rosterTimes}
           onSet={handleSetStatus}
         />
       )}
