@@ -248,3 +248,16 @@ html, body {
 .subcard .card-row > :first-child {
   min-width: 0;               /* allow text to shrink without wrapping buttons */
 }
+
+/* === Ensure student row actions are right aligned === */
+.sd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sd-row .sd-card-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 8px;
+}
