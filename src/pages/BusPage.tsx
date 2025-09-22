@@ -4,10 +4,11 @@ import type { Status, StudentRow } from '../types'
 type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
-  rosterTimes: Record<string, string>
+  rosterTimes: Record<string, string> // not used here; kept for signature parity
   onSet: (id: string, st: Status, meta?: any) => void
 }
 
+// same eligibility logic you already had
 const BUS_SCHOOLS = new Set(['Bain', 'MC', 'MHE', 'QG'])
 const BUS_YEARS = new Set([
   'FT - A',
@@ -26,14 +27,26 @@ const SCHOOL_FILTERS: Array<{ key: string; label: string }> = [
   { key: 'MC', label: 'MC' },
 ]
 
-function CountsBar({
-  students, roster, schoolSel,
-}: { students: StudentRow[]; roster: Record<string, Status>; schoolSel: string }) {
+export default function BusPage({ students, roster, rosterTimes, onSet }: Props) {
+  const [schoolSel, setSchoolSel] = useState<string>('All')
+  const [q, setQ] = useState('')
+  const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
+
+  // global counts (respect school filter + search)
   const counts = useMemo(() => {
     let toPick = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
+    const ql = q.trim().toLowerCase()
     for (const s of students) {
       if (!s.active) continue
+      if (!BUS_SCHOOLS.has(s.school)) continue
+      if (!BUS_YEARS.has(s.school_year ?? '')) continue
+
       if (schoolSel !== 'All' && s.school !== schoolSel) continue
+      if (ql) {
+        const full = `${s.first_name} ${s.last_name}`.toLowerCase()
+        if (!full.includes(ql)) continue
+      }
+
       const st = roster[s.id] ?? 'not_picked'
       if (st === 'not_picked') toPick++
       else if (st === 'picked') picked++
@@ -42,23 +55,7 @@ function CountsBar({
       else if (st === 'skipped') skipped++
     }
     return { toPick, picked, arrived, checked, skipped }
-  }, [students, roster, schoolSel])
-
-  return (
-    <div className="row gap wrap" style={{ marginTop: 6 }}>
-      <span className="badge">To Pick <b>{counts.toPick}</b></span>
-      <span className="badge">Picked <b>{counts.picked}</b></span>
-      <span className="badge">Arrived <b>{counts.arrived}</b></span>
-      <span className="badge">Checked <b>{counts.checked}</b></span>
-      <span className="badge">Skipped <b>{counts.skipped}</b></span>
-    </div>
-  )
-}
-
-export default function BusPage({ students, roster, rosterTimes, onSet }: Props) {
-  const [schoolSel, setSchoolSel] = useState<string>('All')
-  const [q, setQ] = useState('')
-  const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
+  }, [students, roster, schoolSel, q])
 
   const toPickup = useMemo(() => {
     const ql = q.trim().toLowerCase()
@@ -66,14 +63,17 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
       if (!s.active) return false
       if (!BUS_SCHOOLS.has(s.school)) return false
       if (!BUS_YEARS.has(s.school_year ?? '')) return false
+
       const st = roster[s.id]
       if (st === 'skipped' || st === 'arrived' || st === 'checked') return false
+      if (st === 'picked') return false // only “Not Picked” here
+
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
         if (!full.includes(ql)) return false
       }
-      return st !== 'picked'
+      return true
     })
     list.sort((a, b) =>
       sortBy === 'first'
@@ -87,28 +87,21 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
     const ql = q.trim().toLowerCase()
     const list = students.filter((s) => {
       if (!s.active) return false
-      const st = roster[s.id]
-      if (st !== 'skipped') return false
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
         if (!full.includes(ql)) return false
       }
-      return true
+      return roster[s.id] === 'skipped'
     })
     list.sort((a, b) => a.last_name.localeCompare(b.last_name))
     return list
   }, [students, roster, q, schoolSel])
 
   return (
-    <div className="page">
-      {/* INLINE background strip so you 100% see the change */}
-      <div style={{
-        background: '#eceff4',
-        borderRadius: 12,
-        padding: '10px 12px',
-        marginBottom: 12,
-      }}>
+    <div className="page container">
+      {/* TOP BAR — identical structure to Skip page */}
+      <div className="card" style={{ paddingBottom: 10 }}>
         <div className="row gap wrap" style={{ alignItems: 'center' }}>
           <div className="seg seg-scroll">
             {SCHOOL_FILTERS.map((f) => (
@@ -136,15 +129,21 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
               <option value="last">Last Name</option>
             </select>
           </div>
-
-          {/* tiny build tag so you can verify the file is live */}
-          <div className="muted" style={{ marginLeft: 8 }}>build: ui-parity-2</div>
         </div>
 
-        <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
+        {/* Global counts (inline under same bar) */}
+        <div className="row gap wrap" style={{ marginTop: 8 }}>
+          <span className="badge">To Pick <b>{counts.toPick}</b></span>
+          <span className="badge">Picked <b>{counts.picked}</b></span>
+          <span className="badge">Arrived <b>{counts.arrived}</b></span>
+          <span className="badge">Checked <b>{counts.checked}</b></span>
+          <span className="badge">Skipped <b>{counts.skipped}</b></span>
+          <span className="muted" style={{ marginLeft: 'auto' }}>build: ui-parity-3</span>
+        </div>
       </div>
 
-      <div className="two-col">
+      {/* Two columns — same as Skip */}
+      <div className="two-col" style={{ marginTop: 12 }}>
         <div className="card">
           <h3 className="title">Bus Pickup</h3>
           {toPickup.length === 0 ? (
