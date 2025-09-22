@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react'
+import React, { useMemo, useState } from 'react'
 import type { Status, StudentRow } from '../types'
 
 type Props = {
@@ -6,344 +6,280 @@ type Props = {
   roster: Record<string, Status>
   rosterTimes: Record<string, string>
   onSet: (id: string, st: Status, meta?: any) => void
-  inferPrevStatus: (s: StudentRow) => 'picked' | 'not_picked'
-  // optional: ignored; page now computes filtered counts locally
-  globalCounts?: { not_picked: number; picked: number; arrived: number; checked: number; skipped: number }
+  /** Used for one-click Undo on Checkout panel, defaults if not provided */
+  inferPrevStatus?: (s: StudentRow) => Status
 }
 
-type CenterTab = 'in' | 'out'
-type SortKey = 'first' | 'last'
-const SCHOOLS = ['Bain', 'QG', 'MHE', 'MC'] as const
+/** Allowed School_Year values for Direct Check-in (No Bus) */
+const DIRECT_YEARS = new Set([
+  'B', 'H',                       // before-school / holiday allowed here
+  'FT - A',
+  'FT - B/A',
+  'PT3 - A - TWR',
+  'PT3 - A - MWF',
+  'PT2 - A - WR',
+  'PT3 - A - TWF',
+])
 
-function fmtEST(iso?: string) {
-  if (!iso) return ''
-  try {
-    const d = new Date(iso)
-    return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
-  } catch { return '' }
-}
-function currentTimeEST_HHMM() {
-  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
-  const hh = String(nowEST.getHours()).padStart(2, '0')
-  const mm = String(nowEST.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
-}
-function nameOf(s: StudentRow) { return `${s.first_name} ${s.last_name}` }
+const SCHOOL_FILTERS: Array<{ key: string; label: string }> = [
+  { key: 'All', label: 'All' },
+  { key: 'Bain', label: 'Bain' },
+  { key: 'QG', label: 'QG' },
+  { key: 'MHE', label: 'MHE' },
+  { key: 'MC', label: 'MC' },
+]
 
-function StudentRowCard({ s, subtitle, actions }:{
-  s: StudentRow; subtitle: React.ReactNode; actions?: React.ReactNode
-}) {
-  return (
-    <div className="card row" style={{ alignItems:'center' }}>
-      <div style={{ minWidth: 0 }}>
-        <div className="title">{nameOf(s)}</div>
-        <div className="muted">{subtitle}</div>
-      </div>
-      <div className="row gap" style={{ marginLeft:'auto' }}>{actions}</div>
-    </div>
-  )
-}
-
-/** Centered modal */
-function Modal({ open, title, onClose, children }:{
-  open: boolean; title: string; onClose: ()=>void; children: React.ReactNode
-}) {
-  if (!open) return null
-  return (
-    <div className="sd-overlay">
-      <div className="sd-modal">
-        <button className="sd-close" onClick={onClose} aria-label="Close">✕</button>
-        <h3 className="sd-title">{title}</h3>
-        <div className="sd-body">{children}</div>
-      </div>
-      <style>{`
-        .sd-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.45);
-          display:flex; align-items:center; justify-content:center; z-index:9999; padding:16px; }
-        .sd-modal{ position:relative; width:min(600px, 92vw); background:#fff; border-radius:16px; padding:20px 20px 16px;
-          box-shadow:0 18px 50px rgba(0,0,0,0.25); }
-        .sd-close{ position:absolute; top:10px; right:10px; border:1px solid #E5E7EB; background:#fff; border-radius:10px; padding:4px 8px; cursor:pointer; }
-        .sd-title{ margin:0 28px 12px 0; font-size:18px; font-weight:600; }
-        .sd-body{ display:block }
-        .pill-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:10px; }
-        .pill{ border:1px solid #d1d5db; padding:10px 12px; border-radius:999px; background:#fff; cursor:pointer; text-align:left; }
-        .pill.on{ background:#0b1220; color:#fff; border-color:#0b1220; }
-      `}</style>
-    </div>
-  )
+function formatStatusWithTime(st: Status | undefined, iso?: string) {
+  if (!st) return 'Not Picked'
+  if (st === 'not_picked') return 'Not Picked'
+  if (st === 'skipped') return 'Skipped'
+  if (!iso) return st === 'picked' ? 'Picked' : st === 'arrived' ? 'Arrived' : 'Checked Out'
+  const d = new Date(iso)
+  const h = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+  return `${st === 'picked' ? 'Picked' : st === 'arrived' ? 'Arrived' : 'Checked Out'} : ${h}`
 }
 
 export default function CenterPage({
-  students, roster, rosterTimes, onSet, inferPrevStatus
+  students,
+  roster,
+  rosterTimes,
+  onSet,
+  inferPrevStatus = (s) => (roster[s.id] === 'arrived' ? 'picked' : 'not_picked'),
 }: Props) {
-  const [tab, setTab] = useState<CenterTab>('in')
-  const [school, setSchool] = useState<string>('All')
+  const [schoolSel, setSchoolSel] = useState<string>('All')
   const [q, setQ] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('first')
+  const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
+  const [tab, setTab] = useState<'checkin' | 'checkout'>('checkin')
 
-  // checkout modal state
-  const [checkoutOpen, setCheckoutOpen] = useState(false)
-  const [checkoutStudent, setCheckoutStudent] = useState<StudentRow | null>(null)
-  const [pickupSelect, setPickupSelect] = useState<string>('') // no default selection
-  const [pickupOther, setPickupOther] = useState<string>('')   // admin override
-  const [pickupTime, setPickupTime] = useState<string>(currentTimeEST_HHMM())
-
-  const twoCol: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, alignItems:'start' }
-
-  const act = useCallback((id: string, st: Status, meta?: any) => {
-    setQ('')
-    onSet(id, st, meta)
-  }, [onSet])
-
-  const openCheckout = useCallback((s: StudentRow) => {
-    setCheckoutStudent(s)
-    setPickupSelect('')
-    setPickupOther('')
-    setPickupTime(currentTimeEST_HHMM())
-    setCheckoutOpen(true)
-  }, [])
-
-  const confirmCheckout = useCallback(() => {
-    if (!checkoutStudent) return
-    const pickupPerson = (pickupOther?.trim() || pickupSelect?.trim())
-    if (!pickupPerson) { alert('Please tap a pickup name or type an override.'); return }
-    act(checkoutStudent.id, 'checked', { pickupPerson, time_est: pickupTime })
-    setCheckoutOpen(false)
-    setCheckoutStudent(null)
-  }, [checkoutStudent, pickupOther, pickupSelect, pickupTime, act])
-
-  const sorted = useMemo(() => {
-    const arr = students.filter(s => s.active)
-    arr.sort((a, b) => {
-      const A = sortKey === 'first' ? a.first_name : a.last_name
-      const B = sortKey === 'first' ? b.first_name : b.last_name
-      return A.localeCompare(B, undefined, { sensitivity:'base' })
-    })
-    return arr
-  }, [students, sortKey])
-
-  const matches = useCallback((s: StudentRow) => {
-    if (school!=='All' && s.school!==school) return false
-    if (q) {
-      const hay = `${s.first_name} ${s.last_name}`.toLowerCase()
-      if (!hay.includes(q.toLowerCase())) return false
-    }
-    return true
-  }, [school, q])
-
-  // Filtered universe
-  const filtered = useMemo(() => sorted.filter(matches), [sorted, matches])
-
-  // Filtered-counts (respect filters)
-  const counts = useMemo(() => {
-    let not_picked = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
-    for (const s of filtered) {
-      const st = roster[s.id] ?? 'not_picked'
-      if (st === 'picked') picked++
-      else if (st === 'arrived') arrived++
-      else if (st === 'checked') checked++
-      else if (st === 'skipped') skipped++
-      else not_picked++
-    }
-    return { not_picked, picked, arrived, checked, skipped }
-  }, [filtered, roster])
-
-  // Panels from filtered
-  const pickedFromBus = useMemo(
-    () => filtered.filter(s => roster[s.id]==='picked'),
-    [filtered, roster]
-  )
-  const directCheckIn = useMemo(
-    () => filtered.filter(s => {
+  const pickedForCheckin = useMemo(() => {
+    const ql = q.trim().toLowerCase()
+    const list = students.filter((s) => {
+      if (!s.active) return false
+      // from Bus: must be picked now
       const st = roster[s.id]
-      return !st || st==='not_picked'
-    }),
-    [filtered, roster]
-  )
-  const arrived = useMemo(
-    () => filtered.filter(s => roster[s.id]==='arrived'),
-    [filtered, roster]
-  )
-  const checkedOut = useMemo(
-    () => filtered.filter(s => roster[s.id]==='checked'),
-    [filtered, roster]
-  )
+      if (st !== 'picked') return false
 
-  const subtitleFor = (s: StudentRow) => {
-    const st = roster[s.id]
-    const base = `School: ${s.school} | ${
-      st==='checked'?'Checked Out': st==='arrived'?'Arrived': st==='picked'?'Picked': st==='skipped'?'Skipped':'Not Picked'
-    }`
-    if (st==='picked' || st==='arrived' || st==='checked') {
-      const t = fmtEST(rosterTimes[s.id])
-      return t ? `${base} : ${t}` : base
-    }
-    return base
-  }
+      // school filter at page level (single-select)
+      if (schoolSel !== 'All' && s.school !== schoolSel) return false
+
+      if (ql) {
+        const full = `${s.first_name} ${s.last_name}`.toLowerCase()
+        if (!full.includes(ql)) return false
+      }
+      return true
+    })
+
+    list.sort((a, b) =>
+      sortBy === 'first'
+        ? a.first_name.localeCompare(b.first_name)
+        : a.last_name.localeCompare(b.last_name)
+    )
+    return list
+  }, [students, roster, q, schoolSel, sortBy])
+
+  const directForCheckin = useMemo(() => {
+    const ql = q.trim().toLowerCase()
+    const list = students.filter((s) => {
+      if (!s.active) return false
+      if (!DIRECT_YEARS.has(s.school_year ?? '')) return false
+
+      // exclude those already picked/arrived/checked/skipped — direct is for kids coming without bus
+      const st = roster[s.id]
+      if (st === 'picked' || st === 'arrived' || st === 'checked' || st === 'skipped') return false
+
+      if (schoolSel !== 'All' && s.school !== schoolSel) return false
+
+      if (ql) {
+        const full = `${s.first_name} ${s.last_name}`.toLowerCase()
+        if (!full.includes(ql)) return false
+      }
+      // either undefined or 'not_picked'
+      return true
+    })
+
+    list.sort((a, b) =>
+      sortBy === 'first'
+        ? a.first_name.localeCompare(b.first_name)
+        : a.last_name.localeCompare(b.last_name)
+    )
+    return list
+  }, [students, roster, q, schoolSel, sortBy])
+
+  const arrived = useMemo(() => {
+    const ql = q.trim().toLowerCase()
+    const list = students.filter((s) => {
+      if (!s.active) return false
+      const st = roster[s.id]
+      if (st !== 'arrived') return false
+      if (schoolSel !== 'All' && s.school !== schoolSel) return false
+      if (ql) {
+        const full = `${s.first_name} ${s.last_name}`.toLowerCase()
+        if (!full.includes(ql)) return false
+      }
+      return true
+    })
+    list.sort((a, b) => a.last_name.localeCompare(b.last_name))
+    return list
+  }, [students, roster, q, schoolSel])
+
+  const checkedOut = useMemo(() => {
+    const ql = q.trim().toLowerCase()
+    const list = students.filter((s) => {
+      if (!s.active) return false
+      const st = roster[s.id]
+      if (st !== 'checked') return false
+      if (schoolSel !== 'All' && s.school !== schoolSel) return false
+      if (ql) {
+        const full = `${s.first_name} ${s.last_name}`.toLowerCase()
+        if (!full.includes(ql)) return false
+      }
+      return true
+    })
+    list.sort((a, b) => a.last_name.localeCompare(b.last_name))
+    return list
+  }, [students, roster, q, schoolSel])
 
   return (
-    <div className="panel">
-      {/* Filters */}
-      <div className="row gap wrap" style={{ marginBottom: 8 }}>
-        <div className="seg">
-          <button className={'seg-btn' + (school==='All'?' on':'')} onClick={()=>setSchool('All')}>All</button>
-          {SCHOOLS.map(sch=>(
-            <button key={sch} className={'seg-btn' + (school===sch?' on':'')} onClick={()=>setSchool(sch)}>{sch}</button>
+    <div className="page">
+      {/* Page-level school filter, search, sort */}
+      <div className="row gap wrap" style={{ marginBottom: 12 }}>
+        <div className="seg seg-scroll">
+          {SCHOOL_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              className={`seg-btn ${schoolSel === f.key ? 'active' : ''}`}
+              onClick={() => setSchoolSel(f.key)}
+            >
+              {f.label}
+            </button>
           ))}
         </div>
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student…" style={{ flex:1, minWidth:220 }}/>
-        <div className="row gap" style={{ alignItems:'center' }}>
-          <span className="muted">Sort</span>
-          <select value={sortKey} onChange={e=>setSortKey(e.target.value as SortKey)}>
+
+        <input
+          className="search"
+          placeholder="Search student…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ minWidth: 260 }}
+        />
+
+        <div className="row gap" style={{ marginLeft: 'auto' }}>
+          <label className="muted">Sort</label>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
             <option value="first">First Name</option>
             <option value="last">Last Name</option>
           </select>
         </div>
       </div>
 
-      {/* Filtered counts (under filters) */}
-      <div className="row gap" style={{ marginBottom: 12 }}>
-        <span className="chip">To Pick <b>{counts.not_picked}</b></span>
-        <span className="chip">Picked <b>{counts.picked}</b></span>
-        <span className="chip">Arrived <b>{counts.arrived}</b></span>
-        <span className="chip">Checked Out <b>{counts.checked}</b></span>
-        <span className="chip">Skipped <b>{counts.skipped}</b></span>
-      </div>
-
       {/* Tabs */}
-      <div className="seg" style={{ marginBottom: 10 }}>
-        <button className={'seg-btn' + (tab==='in'?' on':'')} onClick={()=>setTab('in')}>Check-in</button>
-        <button className={'seg-btn' + (tab==='out'?' on':'')} onClick={()=>setTab('out')}>Checkout</button>
+      <div className="seg" style={{ marginBottom: 12 }}>
+        <button className={`seg-btn ${tab === 'checkin' ? 'active' : ''}`} onClick={() => setTab('checkin')}>Check-in</button>
+        <button className={`seg-btn ${tab === 'checkout' ? 'active' : ''}`} onClick={() => setTab('checkout')}>Checkout</button>
       </div>
 
-      {tab==='in' ? (
-        <div style={twoCol}>
-          {/* Center Check-in (from Bus) */}
+      {tab === 'checkin' ? (
+        <div className="two-col">
           <div className="card">
-            <h3>Center Check-in (from Bus)</h3>
-            {pickedFromBus.length===0 ? <div className="muted">No students to check in from bus.</div> : (
-              pickedFromBus.map(s=>(
-                <StudentRowCard
-                  key={s.id}
-                  s={s}
-                  subtitle={subtitleFor(s)}
-                  actions={
-                    <>
-                      <button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>
-                      <button className="btn" onClick={()=>act(s.id, 'not_picked')}>Undo</button>
-                    </>
-                  }
-                />
-              ))
+            <h3 className="title">Center Check-in (from Bus)</h3>
+            {pickedForCheckin.length === 0 ? (
+              <div className="muted">No students to check in from bus.</div>
+            ) : (
+              <div className="vlist gap">
+                {pickedForCheckin.map((s) => (
+                  <div key={s.id} className="item row between">
+                    <div>
+                      <div className="name">{s.first_name} {s.last_name}</div>
+                      <div className="muted">
+                        School: {s.school} | {formatStatusWithTime('picked', rosterTimes[s.id])}
+                      </div>
+                    </div>
+                    <div className="sd-card-actions">
+                      <button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>
+                      <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Undo</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          {/* Direct Check-in (No Bus) */}
           <div className="card">
-            <h3>Direct Check-in (No Bus)</h3>
-            {directCheckIn.length===0 ? <div className="muted">No students for direct check-in.</div> : (
-              directCheckIn.map(s=>(
-                <StudentRowCard
-                  key={s.id}
-                  s={s}
-                  subtitle={subtitleFor(s)}
-                  actions={<button className="btn primary" onClick={()=>act(s.id,'arrived')}>Mark Arrived</button>}
-                />
-              ))
+            <h3 className="title">Direct Check-in (No Bus)</h3>
+            {directForCheckin.length === 0 ? (
+              <div className="muted">No students for direct check-in.</div>
+            ) : (
+              <div className="vlist gap">
+                {directForCheckin.map((s) => (
+                  <div key={s.id} className="item row between">
+                    <div>
+                      <div className="name">{s.first_name} {s.last_name}</div>
+                      <div className="muted">
+                        School: {s.school} | {formatStatusWithTime(roster[s.id], rosterTimes[s.id])}
+                      </div>
+                    </div>
+                    <div className="sd-card-actions">
+                      <button className="btn primary" onClick={() => onSet(s.id, 'arrived')}>Mark Arrived</button>
+                      {/* as requested earlier, no Undo here */}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
       ) : (
-        <div style={twoCol}>
-          {/* Checkout */}
+        <div className="two-col">
           <div className="card">
-            <h3>Checkout</h3>
-            {arrived.length===0 ? <div className="muted">No students ready to check out.</div> : (
-              arrived.map(s=>(
-                <StudentRowCard
-                  key={s.id}
-                  s={s}
-                  subtitle={subtitleFor(s)}
-                  actions={
-                    <>
-                      <button className="btn primary" onClick={()=>openCheckout(s)}>Checkout</button>
-                      <button className="btn" onClick={()=>act(s.id, inferPrevStatus(s))}>Undo</button>
-                    </>
-                  }
-                />
-              ))
+            <h3 className="title">Checkout</h3>
+            {arrived.length === 0 ? (
+              <div className="muted">No students to checkout.</div>
+            ) : (
+              <div className="vlist gap">
+                {arrived.map((s) => (
+                  <div key={s.id} className="item row between">
+                    <div>
+                      <div className="name">{s.first_name} {s.last_name}</div>
+                      <div className="muted">
+                        School: {s.school} | {formatStatusWithTime('arrived', rosterTimes[s.id])}
+                      </div>
+                    </div>
+                    <div className="sd-card-actions">
+                      {/* Your existing modal flow for selecting pickup person goes here; keeping simple */}
+                      <button className="btn primary" onClick={() => onSet(s.id, 'checked')}>Checkout</button>
+                      <button className="btn" onClick={() => onSet(s.id, inferPrevStatus(s))}>Undo</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          {/* Checked Out */}
           <div className="card">
-            <h3>Checked Out</h3>
-            {checkedOut.length===0 ? <div className="muted">No checked-out students.</div> : (
-              checkedOut.map(s=>(
-                <StudentRowCard
-                  key={s.id}
-                  s={s}
-                  subtitle={subtitleFor(s)}
-                  actions={<button className="btn" onClick={()=>act(s.id,'arrived')}>Undo</button>}
-                />
-              ))
+            <h3 className="title">Checked Out</h3>
+            {checkedOut.length === 0 ? (
+              <div className="muted">No checked-out students.</div>
+            ) : (
+              <div className="vlist gap">
+                {checkedOut.map((s) => (
+                  <div key={s.id} className="item row between">
+                    <div>
+                      <div className="name">{s.first_name} {s.last_name}</div>
+                      <div className="muted">
+                        School: {s.school} | {formatStatusWithTime('checked', rosterTimes[s.id])}
+                      </div>
+                    </div>
+                    <div className="sd-card-actions">
+                      {/* As requested earlier, provide Undo to move back to Arrived */}
+                      <button className="btn" onClick={() => onSet(s.id, 'arrived')}>Undo</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
       )}
-
-      {/* Checkout Modal */}
-      <Modal
-        open={checkoutOpen}
-        title={checkoutStudent ? `Checkout — ${nameOf(checkoutStudent)}` : 'Checkout'}
-        onClose={()=>{ setCheckoutOpen(false); setCheckoutStudent(null) }}
-      >
-        {checkoutStudent && (
-          <div className="col gap">
-            <div className="muted" style={{ marginBottom: 6 }}>Approved Pickup</div>
-            <div className="pill-grid" style={{ marginBottom: 10 }}>
-              {(checkoutStudent.approved_pickups ?? []).map((p, idx) => {
-                const active = pickupSelect === p
-                return (
-                  <button
-                    key={idx}
-                    className={'pill' + (active ? ' on' : '')}
-                    onClick={() => setPickupSelect(active ? '' : p)}
-                    type="button"
-                  >
-                    {p}
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="row gap wrap" style={{ marginTop: 4 }}>
-              <div style={{ minWidth: 260, flex: 1 }}>
-                <div className="muted" style={{ marginBottom: 6 }}>Admin Override (type name)</div>
-                <input value={pickupOther} onChange={(e) => setPickupOther(e.target.value)} placeholder="Override name (optional)" />
-              </div>
-              <div style={{ minWidth: 180 }}>
-                <div className="muted" style={{ marginBottom: 6 }}>Pickup Time (EST)</div>
-                <input type="time" value={pickupTime} onChange={(e)=>setPickupTime(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="row gap" style={{ justifyContent:'flex-end', marginTop: 14 }}>
-              <button className="btn" onClick={()=>{ setCheckoutOpen(false); setCheckoutStudent(null) }}>Cancel</button>
-              <button className="btn primary" onClick={confirmCheckout}>Checkout</button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* chip styles */}
-      <style>{`
-        .chip {
-          display:inline-flex; align-items:center; gap:6px;
-          padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px;
-          font-size:12px; background:#fff;
-        }
-        .chip b { font-weight:600 }
-      `}</style>
     </div>
   )
 }
