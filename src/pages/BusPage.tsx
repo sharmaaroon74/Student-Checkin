@@ -8,10 +8,7 @@ type Props = {
   onSet: (id: string, st: Status, meta?: any) => void
 }
 
-/** Allowed schools on BUS page */
 const BUS_SCHOOLS = new Set(['Bain', 'MC', 'MHE', 'QG'])
-
-/** Allowed School_Year values for BUS pickup */
 const BUS_YEARS = new Set([
   'FT - A',
   'FT - B/A',
@@ -30,14 +27,8 @@ const SCHOOL_FILTERS: Array<{ key: string; label: string }> = [
 ]
 
 function CountsBar({
-  students,
-  roster,
-  schoolSel,
-}: {
-  students: StudentRow[]
-  roster: Record<string, Status>
-  schoolSel: string
-}) {
+  students, roster, schoolSel,
+}: { students: StudentRow[]; roster: Record<string, Status>; schoolSel: string }) {
   const counts = useMemo(() => {
     let toPick = 0, picked = 0, arrived = 0, checked = 0, skipped = 0
     for (const s of students) {
@@ -54,7 +45,7 @@ function CountsBar({
   }, [students, roster, schoolSel])
 
   return (
-    <div className="row gap wrap counts">
+    <div className="row gap wrap" style={{ marginTop: 6 }}>
       <span className="badge">To Pick <b>{counts.toPick}</b></span>
       <span className="badge">Picked <b>{counts.picked}</b></span>
       <span className="badge">Arrived <b>{counts.arrived}</b></span>
@@ -75,30 +66,20 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
       if (!s.active) return false
       if (!BUS_SCHOOLS.has(s.school)) return false
       if (!BUS_YEARS.has(s.school_year ?? '')) return false
-
-      // roster status must NOT be skipped; and must not be already arrived/checked
       const st = roster[s.id]
       if (st === 'skipped' || st === 'arrived' || st === 'checked') return false
-
-      // apply school filter
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
-
-      // search filter
       if (ql) {
         const full = `${s.first_name} ${s.last_name}`.toLowerCase()
         if (!full.includes(ql)) return false
       }
-      // Only show if not already picked (we're picking here)
       return st !== 'picked'
     })
-
-    list.sort((a, b) => {
-      const af = a.first_name.toLowerCase()
-      const al = a.last_name.toLowerCase()
-      const bf = b.first_name.toLowerCase()
-      const bl = b.last_name.toLowerCase()
-      return sortBy === 'first' ? af.localeCompare(bf) : al.localeCompare(bl)
-    })
+    list.sort((a, b) =>
+      sortBy === 'first'
+        ? a.first_name.localeCompare(b.first_name)
+        : a.last_name.localeCompare(b.last_name)
+    )
     return list
   }, [students, roster, q, schoolSel, sortBy])
 
@@ -115,16 +96,20 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
       }
       return true
     })
-
     list.sort((a, b) => a.last_name.localeCompare(b.last_name))
     return list
   }, [students, roster, q, schoolSel])
 
   return (
     <div className="page">
-      {/* Toolbar + counts (same structure as Skip) */}
-      <div className="toolbar-bg">
-        <div className="toolbar row gap wrap">
+      {/* INLINE background strip so you 100% see the change */}
+      <div style={{
+        background: '#eceff4',
+        borderRadius: 12,
+        padding: '10px 12px',
+        marginBottom: 12,
+      }}>
+        <div className="row gap wrap" style={{ alignItems: 'center' }}>
           <div className="seg seg-scroll">
             {SCHOOL_FILTERS.map((f) => (
               <button
@@ -151,6 +136,9 @@ export default function BusPage({ students, roster, rosterTimes, onSet }: Props)
               <option value="last">Last Name</option>
             </select>
           </div>
+
+          {/* tiny build tag so you can verify the file is live */}
+          <div className="muted" style={{ marginLeft: 8 }}>build: ui-parity-2</div>
         </div>
 
         <CountsBar students={students} roster={roster} schoolSel={schoolSel} />
