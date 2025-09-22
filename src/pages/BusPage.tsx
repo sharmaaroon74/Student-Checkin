@@ -17,6 +17,14 @@ const BUS_YEARS = new Set([
   'PT3 - A - TWF',
 ])
 
+const STATUS_LABEL: Record<Status, string> = {
+  not_picked: 'To Pick',
+  picked: 'Picked',
+  arrived: 'Arrived',
+  checked: 'Checked Out',
+  skipped: 'Skipped',
+}
+
 export default function BusPage({ students, roster, onSet }: Props) {
   const [schoolSel, setSchoolSel] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
   const [q, setQ] = useState('')
@@ -24,6 +32,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
 
   const clearSearch = () => setQ('')
 
+  // Page-level filtered list (this is what counts will respect)
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase()
     const list = students.filter(s => {
@@ -42,16 +51,27 @@ export default function BusPage({ students, roster, onSet }: Props) {
         ? a.first_name.localeCompare(b.first_name)
         : a.last_name.localeCompare(b.last_name))
     return list
-  }, [students, roster, schoolSel, q, sortBy])
+  }, [students, schoolSel, q, sortBy])
 
-  const toPickup = filtered.filter(s => {
-    const st = roster[s.id] ?? 'not_picked'
-    return st === 'not_picked'
-  })
+  // Global counts (respect page filters)
+  const counts = useMemo(() => {
+    const c: Record<Status, number> = {
+      not_picked: 0, picked: 0, arrived: 0, checked: 0, skipped: 0
+    }
+    for (const s of filtered) {
+      const st = (roster[s.id] ?? 'not_picked') as Status
+      c[st]++
+    }
+    return c
+  }, [filtered, roster])
+
+  // Panels
+  const toPickup = filtered.filter(s => (roster[s.id] ?? 'not_picked') === 'not_picked')
   const skipped = filtered.filter(s => roster[s.id] === 'skipped')
 
   return (
     <div className="page container">
+      {/* Toolbar */}
       <div className="toolbar-bg">
         <div className="row gap wrap toolbar">
           <div className="seg seg-scroll">
@@ -72,6 +92,15 @@ export default function BusPage({ students, roster, onSet }: Props) {
               <option value="last">Last Name</option>
             </select>
           </div>
+        </div>
+
+        {/* Global counts respecting filters */}
+        <div className="counts row wrap gap">
+          {(Object.keys(counts) as Status[]).map(st => (
+            <span key={st} className="chip">
+              {STATUS_LABEL[st]} <b>{counts[st]}</b>
+            </span>
+          ))}
         </div>
       </div>
 
