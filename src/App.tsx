@@ -1,90 +1,99 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabase'
+import type { Status, StudentRow } from './types'
 import BusPage from './pages/BusPage'
 import CenterPage from './pages/CenterPage'
 import SkipPage from './pages/SkipPage'
-// NOTE: your login component path + required prop:
 import Login from './Login'
-
-import type { Status, StudentRow } from './types'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 
+// --- Helpers ---
 type Page = 'bus' | 'center' | 'skip'
 
 function todayKeyEST(): string {
-  const est = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
-  return est.toISOString().slice(0, 10)
-}
-function nowISO(): string {
-  return new Date().toISOString()
+  const now = new Date()
+  // en-CA yields YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(now)
 }
 
+function todayESTLabel(): string {
+  const now = new Date()
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short', month: 'short', day: '2-digit', year: 'numeric'
+  }).format(now)
+}
+
+// --- App ---
 export default function App() {
-  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [page, setPage] = useState<Page>('bus')
+  const [sessionReady, setSessionReady] = useState(false)
+  const [isAuthed, setIsAuthed] = useState(false)
 
+  // Students shared across pages
   const [students, setStudents] = useState<StudentRow[]>([])
+
+  // Roster map (student_id -> status) and last-change time (student_id -> ISO string)
   const [roster, setRoster] = useState<Record<string, Status>>({})
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
 
-  // Freeze the roster date at first render (EST)
-  const rosterDateEST = useMemo(() => todayKeyEST(), [])
+  const rosterDateEST = todayKeyEST()
 
-  // ---- Auth bootstrap (and react to auth changes)
+  // Realtime roster + light polling
+  useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
+
+  // Auth wiring (email/password)
   useEffect(() => {
     let mounted = true
     ;(async () => {
       const { data } = await supabase.auth.getSession()
-      const uid = data?.session?.user?.id ?? null
-      if (mounted) setSessionUserId(uid)
+      if (!mounted) return
+      setIsAuthed(!!data.session)
+      setSessionReady(true)
     })()
-
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
-      setSessionUserId(sess?.user?.id ?? null)
+      setIsAuthed(!!sess)
+      setSessionReady(true)
     })
-    return () => {
-      sub?.subscription?.unsubscribe?.()
-      mounted = false
-    }
+    return () => { sub.subscription.unsubscribe() }
   }, [])
 
-  const logout = useCallback(async () => {
-    await supabase.auth.signOut()
-    setSessionUserId(null)
-    // Clear in-memory UI state (DB is the source of truth)
-    setStudents([])
-    setRoster({})
-    setRosterTimes({})
-  }, [])
+  // Fetch students after auth
+  useEffect(() => {
+    if (!isAuthed) return
+    fetchStudents().catch(() => {})
+  }, [isAuthed])
 
-  // ---- Data loaders
-  const fetchStudents = useCallback(async () => {
+  async function fetchStudents() {
     const { data, error } = await supabase
       .from('students')
       .select('id, first_name, last_name, approved_pickups, school, active, room_id, school_year')
-      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true })
 
     if (error) {
-      console.warn('[students] fetch error:', error)
+      console.error('[students] fetch error', error)
       setStudents([])
       return
     }
-    if (!data) {
+    if (!data || data.length === 0) {
       console.warn('[students] 0 rows returned. Possible RLS block or empty table.')
       setStudents([])
       return
     }
     setStudents(data as StudentRow[])
-  }, [])
+  }
 
-  const refetchTodayRoster = useCallback(async () => {
+  async function refetchTodayRoster() {
     const { data, error } = await supabase
       .from('roster_status')
       .select('student_id, current_status, last_update')
       .eq('roster_date', rosterDateEST)
 
     if (error) {
-      console.warn('[roster] fetch error:', error)
+      console.error('[roster] fetch error', error)
       return
     }
     const next: Record<string, Status> = {}
@@ -95,106 +104,95 @@ export default function App() {
     }
     setRoster(next)
     setRosterTimes(times)
-  }, [rosterDateEST])
+  }
 
-  // ---- Auto-skip (No Bus Days) once per EST day after login
-  useEffect(() => {
-    let cancelled = false
-    async function ensureAutoSkipApplied() {
-      if (!sessionUserId) return
-      const key = `sd_autoskip_applied_${rosterDateEST}`
-      if (localStorage.getItem(key)) return
+  // RPC-first; fallback to direct upsert; then optimistic UI
+  async function handleSetStatus(studentId: string, st: Status, meta?: any) {
+    // 1) Try RPC
+    const { error: rpcErr } = await supabase.rpc('api_set_status', {
+      p_student_id: studentId,
+      p_status: st,
+      p_meta: meta ?? null,
+    })
 
-      const { error } = await supabase.rpc('api_apply_auto_skip_today')
-      if (error) {
-        console.warn('[auto-skip] rpc error', error)
-        return
-      }
-      localStorage.setItem(key, '1')
-      if (!cancelled) await refetchTodayRoster()
-    }
-    ensureAutoSkipApplied()
-    return () => { cancelled = true }
-  }, [sessionUserId, rosterDateEST, refetchTodayRoster])
-
-  // ---- Initial data load after login
-  useEffect(() => {
-    if (!sessionUserId) return
-    ;(async () => {
-      await fetchStudents()
-      await refetchTodayRoster()
-    })()
-  }, [sessionUserId, fetchStudents, refetchTodayRoster])
-
-  // ---- Realtime subscription + visible-tab polling (your hook requires 4 args)
-  useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
-
-  // ---- Status setter (optimistic, then RPC with fallback)
-  const onSet = useCallback(
-    async (studentId: string, newStatus: Status, meta?: any) => {
-      // optimistic local update
-      setRoster(prev => ({ ...prev, [studentId]: newStatus }))
-      setRosterTimes(prev => ({ ...prev, [studentId]: nowISO() }))
-
-      // try RPC first (includes logging / server logic)
-      const { error: rpcErr } = await supabase.rpc('api_set_status', {
-        p_student_id: studentId,
-        p_new_status: newStatus,
-        p_meta: meta ?? null
-      })
-      if (!rpcErr) return
-
+    if (rpcErr) {
       console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
 
-      // fallback: direct upsert (requires permissive RLS)
-      const { error: upErr } = await supabase
+      // 2) Fallback: upsert roster_status (requires RLS upsert policy)
+      const { error: upsertErr } = await supabase
         .from('roster_status')
-        .upsert({
-          roster_date: rosterDateEST,
-          student_id: studentId,
-          current_status: newStatus,
-          last_update: nowISO()
-        })
-      if (upErr) {
-        console.error('[roster_status upsert] error', upErr)
-        await refetchTodayRoster() // revert optimistic view
-      }
-    },
-    [rosterDateEST, refetchTodayRoster]
-  )
+        .upsert(
+          {
+            roster_date: rosterDateEST,
+            student_id: studentId,
+            current_status: st,
+            last_update: new Date().toISOString(),
+          },
+          { onConflict: 'roster_date,student_id' }
+        )
 
-  // ---- Top nav helper
-  function TopButton({ active, onClick, children }: { active?: boolean; onClick: () => void; children: React.ReactNode }) {
+      if (upsertErr) {
+        console.error('[roster_status upsert] error', upsertErr)
+        return
+      }
+
+      // Optional: best-effort logs insert (no `.catch` here)
+      const { error: logErr } = await supabase.from('logs').insert({
+        roster_date: rosterDateEST,
+        student_id: studentId,
+        action: st,
+        meta: meta ?? null,
+        at: new Date().toISOString(),
+      })
+      if (logErr) {
+        // Non-fatal — UI still updates via optimistic state + realtime
+        console.warn('[logs insert] ignored', logErr)
+      }
+    }
+
+    // Optimistic UI
+    setRoster(prev => ({ ...prev, [studentId]: st }))
+    setRosterTimes(prev => ({ ...prev, [studentId]: new Date().toISOString() }))
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    setIsAuthed(false)
+  }
+
+  const buildLabel = useMemo(() => 'build: v1.7+toolbar', [])
+
+  if (!sessionReady) {
     return (
-      <button className={`btn ${active ? 'primary' : ''}`} onClick={onClick} type="button">
-        {children}
-      </button>
+      <div className="container">
+        <div className="card"><div className="muted">Loading…</div></div>
+      </div>
     )
   }
 
-  // ---- If NOT logged in, show your Login component (requires onDone prop)
-  if (!sessionUserId) {
-    return <Login onDone={async () => {
-      const { data } = await supabase.auth.getSession()
-      setSessionUserId(data?.session?.user?.id ?? null)
-      // load data right after login
-      await fetchStudents()
-      await refetchTodayRoster()
-    }} />
+  if (!isAuthed) {
+    return (
+      <Login onDone={async () => {
+        setIsAuthed(true)
+        await fetchStudents()
+        await refetchTodayRoster()
+      }} />
+    )
   }
 
-  // ---- Main app shell
   return (
-    <div className="app-shell">
-      {/* Header */}
-      <div className="row gap wrap" style={{ alignItems: 'center', marginBottom: 12 }}>
+    <div className="container">
+      {/* Top nav + date + logout */}
+      <div className="row wrap" style={{ marginBottom: 10, alignItems: 'center' }}>
         <div className="row gap">
-          <TopButton active={page === 'bus'} onClick={() => setPage('bus')}>Bus</TopButton>
-          <TopButton active={page === 'center'} onClick={() => setPage('center')}>Sunny Days</TopButton>
-          <TopButton active={page === 'skip'} onClick={() => setPage('skip')}>Skip</TopButton>
+          <button className={`btn ${page==='bus'?'primary':''}`} onClick={()=>setPage('bus')}>Bus</button>
+          <button className={`btn ${page==='center'?'primary':''}`} onClick={()=>setPage('center')}>Sunny Days</button>
+          <button className={`btn ${page==='skip'?'primary':''}`} onClick={()=>setPage('skip')}>Skip</button>
+          <div className="muted" style={{ marginLeft: 8 }}>{buildLabel}</div>
         </div>
-        <div className="row gap" style={{ marginLeft: 'auto' }}>
-          <button className="btn" onClick={logout}>Logout</button>
+        <div className="row gap" style={{ marginLeft: 'auto', alignItems: 'center' }}>
+          <span className="chip">{todayESTLabel()}</span>
+          <button className="btn" onClick={handleLogout}>Logout</button>
         </div>
       </div>
 
@@ -203,8 +201,7 @@ export default function App() {
         <BusPage
           students={students}
           roster={roster}
-          rosterTimes={rosterTimes}
-          onSet={onSet}
+          onSet={handleSetStatus}
         />
       )}
 
@@ -212,10 +209,8 @@ export default function App() {
         <CenterPage
           students={students}
           roster={roster}
-          rosterTimes={rosterTimes}
-          onSet={onSet}
-          // "Undo" from checkout returns to previous inferred queue
-          inferPrevStatus={(s) => (roster[s.id] === 'arrived' ? 'picked' : 'not_picked')}
+          rosterTimes={rosterTimes}  // <-- ensure CenterPage props include this
+          onSet={handleSetStatus}
         />
       )}
 
@@ -223,13 +218,9 @@ export default function App() {
         <SkipPage
           students={students}
           roster={roster}
-          rosterTimes={rosterTimes}
-          onSet={onSet}
+          onSet={handleSetStatus}
         />
       )}
-
-      {/* Build marker (optional) */}
-      <div className="muted" style={{ marginTop: 8 }}>build: {rosterDateEST}-autoskip</div>
     </div>
   )
 }
