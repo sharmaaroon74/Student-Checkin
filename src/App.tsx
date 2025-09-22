@@ -261,13 +261,12 @@ export default function App() {
       <div className="row gap wrap" style={{ marginBottom: 6 }}>
         <div className="seg">
           <button className={'seg-btn' + (page === 'bus' ? ' on' : '')} onClick={() => setPage('bus')}>Bus</button>
-          <button className={'seg-btn' + (page === 'center' ? ' on' : '')} onClick={() => setPage('center')}>Center</button>
+          <button className={'seg-btn' + (page === 'center' ? ' on' : '')} onClick={() => setPage('center')}>Sunny Days</button>
           <button className={'seg-btn' + (page === 'skip' ? ' on' : '')} onClick={() => setPage('skip')}>Skip</button>
         </div>
         <div className="grow" />
         <div className="row gap">
           <div className="muted">Sunny Days — {estHeaderDate}</div>
-          <button className="btn" onClick={onDailyReset}>Daily Reset</button>
           <button className="btn" onClick={onLogout}>Logout</button>
         </div>
       </div>
