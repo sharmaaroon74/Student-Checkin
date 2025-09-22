@@ -206,3 +206,45 @@ html, body {
 .card-row .btn {
   white-space: nowrap;
 }
+
+
+/* === A) Align panel borders with the toolbar on all pages === */
+/* Unify .container to the same width/gutters as .app-shell so edges line up */
+.container {
+  max-width: var(--page-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-gutter-md);
+  padding-right: var(--page-gutter-md);
+}
+@media (max-width: 767px) {
+  .container {
+    padding-left: var(--page-gutter-sm);
+    padding-right: var(--page-gutter-sm);
+  }
+}
+@media (min-width: 1280px) {
+  .container {
+    padding-left: var(--page-gutter-lg);
+    padding-right: var(--page-gutter-lg);
+  }
+}
+
+/* === B) Make sure Center Check-in + Checkout rows right-align actions === */
+/* You already have .card-row rules; this reinforces rows inside subcards too. */
+.subcard .card-row {
+  display: flex;              /* in case a specific subcard missed the flex */
+  align-items: center;
+  gap: 12px;
+}
+.subcard .card-row > .btn,
+.subcard .card-row .sd-card-actions {
+  margin-left: auto;          /* push actions to the right edge */
+}
+.subcard .sd-card-actions {    /* tidy if multiple buttons (e.g., Checkout + Undo) */
+  display: inline-flex;
+  gap: 8px;
+}
+.subcard .card-row > :first-child {
+  min-width: 0;               /* allow text to shrink without wrapping buttons */
+}
