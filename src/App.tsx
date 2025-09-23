@@ -158,6 +158,18 @@ export default function App() {
     return (
       <Login onDone={async () => {
         setIsAuthed(true)
+
+        // Prepare rows & auto-skip on server (EST-aware), then fetch fresh roster
+  try {
+  const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
+  if (error) {
+    // Safe to proceed; it likely means it was already prepared or RLS blocked logs insert
+    console.warn('[prepare_today] RPC error (non-fatal):', error)
+  }
+} catch (e) {
+  console.warn('[prepare_today] unexpected error (non-fatal):', e)
+}
+
         await fetchStudents()
         await refetchTodayRoster()
       }} />
