@@ -8,23 +8,27 @@ type Props = {
   onSet: (id: string, st: Status, meta?: any) => void
 }
 
-const BUS_SCHOOLS = new Set(['Bain', 'MC', 'MHE', 'QG'])
-const BUS_YEARS = new Set([
-  'FT - A', 'FT - B/A',
-  'PT3 - A - TWR', 'PT3 - A - MWF', 'PT2 - A - WR', 'PT3 - A - TWF',
-])
+// Shared constants used for the Bus-eligible panel
+const ALLOWED_SCHOOLS = ['Bain', 'QG', 'MHE', 'MC']
+const BUS_ELIGIBLE_YEARS = [
+  'FT - A',
+  'FT - B/A',
+  'PT3 - A - TWR',
+  'PT3 - A - MWF',
+  'PT2 - A - WR',
+  'PT3 - A - TWF',
+]
 
 export default function BusPage({ students, roster, onSet }: Props) {
-  const [schoolSel, setSchoolSel] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
+  const [schoolSel, setSchoolSel] =
+    useState<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'>('All')
   const [q, setQ] = useState('')
-  const [sortBy, setSortBy] = useState<'first'|'last'>('first')
+  const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
 
-  const filtered = useMemo(() => {
+  // ---------- BASE FILTER (used for GLOBAL COUNTS on every page) ----------
+  const base = useMemo(() => {
     const term = q.trim().toLowerCase()
-    const list = students.filter(s => {
-      if (!s.active) return false
-      if (!BUS_SCHOOLS.has(s.school)) return false
-      if (!BUS_YEARS.has(s.school_year ?? '')) return false
+    const list = students.filter((s) => {
       if (schoolSel !== 'All' && s.school !== schoolSel) return false
       if (term) {
         const name = `${s.first_name} ${s.last_name}`.toLowerCase()
@@ -35,28 +39,51 @@ export default function BusPage({ students, roster, onSet }: Props) {
     list.sort((a, b) =>
       sortBy === 'first'
         ? a.first_name.localeCompare(b.first_name)
-        : a.last_name.localeCompare(b.last_name))
+        : a.last_name.localeCompare(b.last_name)
+    )
     return list
   }, [students, schoolSel, q, sortBy])
 
-  // counts respect filters
+  // ---------- GLOBAL COUNTS (same logic on all pages) ----------
   const counts = useMemo(() => {
-    const c: Record<Status, number> = { not_picked: 0, picked: 0, arrived: 0, checked: 0, skipped: 0 }
-    for (const s of filtered) c[(roster[s.id] ?? 'not_picked') as Status]++
+    const c: Record<Status, number> = {
+      not_picked: 0,
+      picked: 0,
+      arrived: 0,
+      checked: 0,
+      skipped: 0,
+    }
+    for (const s of base) c[(roster[s.id] ?? 'not_picked') as Status]++
     return c
-  }, [filtered, roster])
+  }, [base, roster])
 
-  const toPickup = filtered.filter(s => (roster[s.id] ?? 'not_picked') === 'not_picked')
-  const skipped = filtered.filter(s => roster[s.id] === 'skipped')
+  // ---------- PAGE SECTIONS (unchanged behavior) ----------
+  const busPickup = useMemo(() => {
+    return base.filter((s) => {
+      const st = (roster[s.id] ?? 'not_picked') as Status
+      if (st !== 'not_picked') return false
+      if (!ALLOWED_SCHOOLS.includes(s.school)) return false
+      const yr = (s.school_year ?? '').trim()
+      return BUS_ELIGIBLE_YEARS.includes(yr)
+    })
+  }, [base, roster])
+
+  const skippedToday = useMemo(
+    () => base.filter((s) => roster[s.id] === 'skipped'),
+    [base, roster]
+  )
 
   const clearSearch = () => setQ('')
 
   return (
     <div className="page container">
       <TopToolbar
-        schoolSel={schoolSel} onSchoolSel={setSchoolSel}
-        search={q} onSearch={setQ}
-        sortBy={sortBy} onSortBy={setSortBy}
+        schoolSel={schoolSel}
+        onSchoolSel={setSchoolSel}
+        search={q}
+        onSearch={setQ}
+        sortBy={sortBy}
+        onSortBy={setSortBy}
         counts={counts}
       />
 
@@ -64,15 +91,25 @@ export default function BusPage({ students, roster, onSet }: Props) {
         <div className="card">
           <h3 className="section-title">Bus Pickup</h3>
           <div className="list">
-            {toPickup.length === 0 && <div className="muted">No students to pick up.</div>}
-            {toPickup.map(s => (
+            {busPickup.length === 0 && (
+              <div className="muted">No students to pick up.</div>
+            )}
+            {busPickup.map((s) => (
               <div key={s.id} className="card-row sd-row">
                 <div>
-                  <div className="heading">{s.first_name} {s.last_name}</div>
+                  <div className="heading">
+                    {s.first_name} {s.last_name}
+                  </div>
                   <div className="sub">School: {s.school} | Not Picked</div>
                 </div>
                 <div className="sd-card-actions">
-                  <button className="btn primary" onClick={() => { onSet(s.id, 'picked'); clearSearch() }}>
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      onSet(s.id, 'picked')
+                      clearSearch()
+                    }}
+                  >
                     Mark Picked
                   </button>
                 </div>
@@ -84,15 +121,25 @@ export default function BusPage({ students, roster, onSet }: Props) {
         <div className="card">
           <h3 className="section-title">Skipped Today</h3>
           <div className="list">
-            {skipped.length === 0 && <div className="muted">No skipped students.</div>}
-            {skipped.map(s => (
+            {skippedToday.length === 0 && (
+              <div className="muted">No skipped students.</div>
+            )}
+            {skippedToday.map((s) => (
               <div key={s.id} className="card-row sd-row">
                 <div>
-                  <div className="heading">{s.first_name} {s.last_name}</div>
+                  <div className="heading">
+                    {s.first_name} {s.last_name}
+                  </div>
                   <div className="sub">School: {s.school} | Skipped</div>
                 </div>
                 <div className="sd-card-actions">
-                  <button className="btn" onClick={() => { onSet(s.id, 'not_picked'); clearSearch() }}>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      onSet(s.id, 'not_picked')
+                      clearSearch()
+                    }}
+                  >
                     Unskip Today
                   </button>
                 </div>
