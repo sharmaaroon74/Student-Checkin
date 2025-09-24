@@ -37,8 +37,7 @@ export default function App() {
   const rosterDateEST = todayKeyEST()
 
   // Realtime + light polling fallback
-  useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
-
+    useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
   // Auth (email/password)
   useEffect(() => {
     let mounted = true
@@ -107,6 +106,12 @@ export default function App() {
 
     const prevStatus = (roster[studentId] ?? 'not_picked') as Status
     const prevTime   = rosterTimes[studentId] || null
+    // normalize: if admin override provided and no approved pickup selected,
+    // store it uniformly as pickupPerson in meta so logs & reports see it.
+    if (meta && !meta.pickupPerson && meta.override) {
+      meta.pickupPerson = meta.override;
+    }
+
     const isUndo     = ORDER[st] < ORDER[prevStatus]  // e.g., checked -> arrived, arrived -> picked
     const enrichedMeta = {
       ...(meta ?? {}),
