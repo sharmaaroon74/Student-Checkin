@@ -153,8 +153,8 @@ export default function App() {
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
 
-    // For Undo, restore the original timestamp for that target status from logs.
-    // Otherwise, keep "now" behavior.
+    // For Undo, restore the ORIGINAL timestamp (first time that status was set today)
+    // from logs. Otherwise, keep "now" behavior.
     let restoredAtIso: string | null = null
     if (isUndo) {
       const { data: tsRow, error: tsErr } = await supabase
@@ -163,7 +163,7 @@ export default function App() {
         .eq('roster_date', rosterDateEST)
         .eq('student_id', studentId)
         .eq('action', st)
-        .order('at', { ascending: false })
+        .order('at', { ascending: true })
         .limit(1)
         .maybeSingle()
       if (!tsErr && tsRow?.at) {
