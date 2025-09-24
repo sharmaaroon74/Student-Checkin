@@ -99,11 +99,15 @@ export default function App() {
     setRosterTimes(times)
   }
 
-  // RPC-first; fallback upsert; optimistic UI
   async function handleSetStatus(studentId: string, st: Status, meta?: any) {
-    // capture previous status/time so the server log (or fallback) can preserve history
-   const prevStatus = (roster[studentId] ?? 'not_picked') as Status
+    // helper: status order to detect Undo (moving "backwards" in the flow)
+    const ORDER: Record<Status, number> = {
+      not_picked: 0, picked: 1, arrived: 2, checked: 3, skipped: 4,
+    }
+
+    const prevStatus = (roster[studentId] ?? 'not_picked') as Status
     const prevTime   = rosterTimes[studentId] || null
+    const isUndo     = ORDER[st] < ORDER[prevStatus]  // e.g., checked -> arrived, arrived -> picked
     const enrichedMeta = {
       ...(meta ?? {}),
       prev_status: prevStatus,
@@ -111,10 +115,10 @@ export default function App() {
     }
 
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
-      p_student_id: studentId,
-      p_new_status: st,         // <-- correct arg name expected by the function signature
+       p_student_id: studentId,
+       p_new_status: st,
       p_meta: enrichedMeta,
-    })
+     })
 
     if (rpcErr) {
        console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
@@ -148,7 +152,31 @@ export default function App() {
      }
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
-    setRosterTimes(prev => ({ ...prev, [studentId]: new Date().toISOString() }))
+
+    // For Undo, restore the original timestamp for that target status from logs.
+    // Otherwise, keep "now" behavior.
+    let restoredAtIso: string | null = null
+    if (isUndo) {
+      const { data: tsRow, error: tsErr } = await supabase
+        .from('logs')
+        .select('at')
+        .eq('roster_date', rosterDateEST)
+        .eq('student_id', studentId)
+        .eq('action', st)
+        .order('at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!tsErr && tsRow?.at) {
+        restoredAtIso = tsRow.at as string
+      } else {
+        // fallback: if for any reason the log isn't found, keep "now"
+        restoredAtIso = new Date().toISOString()
+      }
+    }
+    setRosterTimes(prev => ({
+      ...prev,
+      [studentId]: restoredAtIso ?? new Date().toISOString(),
+    }))
   }
 
   async function handleLogout() {
