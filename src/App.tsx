@@ -101,39 +101,51 @@ export default function App() {
 
   // RPC-first; fallback upsert; optimistic UI
   async function handleSetStatus(studentId: string, st: Status, meta?: any) {
+    // capture previous status/time so the server log (or fallback) can preserve history
+   const prevStatus = (roster[studentId] ?? 'not_picked') as Status
+    const prevTime   = rosterTimes[studentId] || null
+    const enrichedMeta = {
+      ...(meta ?? {}),
+      prev_status: prevStatus,
+      prev_time: prevTime, // ISO if available
+    }
+
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
       p_student_id: studentId,
-      p_status: st,
-      p_meta: meta ?? null,
+      p_new_status: st,         // <-- correct arg name expected by the function signature
+      p_meta: enrichedMeta,
     })
 
     if (rpcErr) {
-      console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
-      const { error: upsertErr } = await supabase
-        .from('roster_status')
-        .upsert(
-          {
-            roster_date: rosterDateEST,
-            student_id: studentId,
-            current_status: st,
-            last_update: new Date().toISOString(),
-          },
-          { onConflict: 'roster_date,student_id' }
-        )
-      if (upsertErr) {
-        console.error('[roster_status upsert] error', upsertErr)
-        return
-      }
-      // best-effort log (ok if RLS blocks)
+       console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
+       const { error: upsertErr } = await supabase
+         .from('roster_status')
+         .upsert(
+           {
+             roster_date: rosterDateEST,
+             student_id: studentId,
+             current_status: st,
+             last_update: new Date().toISOString(),
+           },
+           { onConflict: 'roster_date,student_id' }
+         )
+       if (upsertErr) {
+         console.error('[roster_status upsert] error', upsertErr)
+         return
+       }
+      // best-effort log (ok if RLS blocks). Include student_name + enrichedMeta so history is preserved.
+      const stu = students.find(s => s.id === studentId)
+      const student_name = stu ? `${stu.first_name} ${stu.last_name}` : null
       const { error: logErr } = await supabase.from('logs').insert({
+        at: new Date().toISOString(),
         roster_date: rosterDateEST,
         student_id: studentId,
+        student_name,            // satisfies NOT NULL if found; if RLS/NOT NULL fails, we only warn
         action: st,
-        meta: meta ?? null,
-        at: new Date().toISOString(),
+        meta: enrichedMeta,
       })
       if (logErr) console.warn('[logs insert] ignored', logErr)
-    }
+     }
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
     setRosterTimes(prev => ({ ...prev, [studentId]: new Date().toISOString() }))
