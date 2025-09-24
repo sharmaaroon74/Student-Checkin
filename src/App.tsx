@@ -78,25 +78,86 @@ export default function App() {
     setStudents(data as StudentRow[])
   }
 
-  async function refetchTodayRoster() {
-    const { data, error } = await supabase
-      .from('roster_status')
-      .select('student_id, current_status, last_update')
-      .eq('roster_date', rosterDateEST)
+  
 
-    if (error) {
-      console.error('[roster] fetch error', error)
-      return
-    }
-    const next: Record<string, Status> = {}
-    const times: Record<string, string> = {}
-    for (const r of data ?? []) {
-      next[r.student_id] = r.current_status as Status
-      if (r.last_update) times[r.student_id] = r.last_update as string
-    }
-    setRoster(next)
-    setRosterTimes(times)
+  async function refetchTodayRoster() {
+  // 1) fetch current roster rows for today
+  const { data, error } = await supabase
+    .from('roster_status')
+    .select('student_id, current_status, last_update')
+    .eq('roster_date', rosterDateEST)
+
+  if (error) {
+    console.error('[roster] fetch error', error)
+    return
   }
+
+  const next: Record<string, Status> = {}
+  const idsNeedingEarliest: string[] = []
+  const statusFor: Record<string, Status> = {}
+  const lastUpdateFor: Record<string, string | null> = {}
+
+  for (const r of data ?? []) {
+    const st = r.current_status as Status
+    const id = r.student_id as string
+    next[id] = st
+    statusFor[id] = st
+    lastUpdateFor[id] = (r.last_update as string) ?? null
+    // only these statuses show a time in the UI
+    if (st === 'picked' || st === 'arrived' || st === 'checked') {
+      idsNeedingEarliest.push(id)
+    }
+  }
+
+  // 2) build times using the EARLIEST log time per (student, current_status) for today
+  const times: Record<string, string> = {}
+  if (idsNeedingEarliest.length > 0) {
+    // PostgREST: group by student_id, action and compute min(at)
+    // We filter action to only the three timed statuses.
+    const { data: logRows, error: logErr } = await supabase
+      .from('logs')
+      .select('student_id, action, at')
+      .eq('roster_date', rosterDateEST)
+      .in('action', ['picked','arrived','checked'])
+      .in('student_id', idsNeedingEarliest)
+
+    if (logErr) {
+      console.warn('[logs earliest fetch] non-fatal:', logErr)
+    } else if (logRows && logRows.length) {
+      // reduce to earliest at per (student_id, action)
+      const earliest: Record<string, Record<string, string>> = {}
+      for (const row of logRows) {
+        const sid = row.student_id as string
+        const act = row.action as Status
+        const at  = row.at as string
+        earliest[sid] ??= {}
+        const existing = earliest[sid][act]
+        if (!existing || new Date(at).getTime() < new Date(existing).getTime()) {
+          earliest[sid][act] = at
+        }
+      }
+      // set time only for the student's current status
+      for (const sid of idsNeedingEarliest) {
+        const st = statusFor[sid]
+        const t = earliest[sid]?.[st]
+        if (t) times[sid] = t
+        else if (lastUpdateFor[sid]) times[sid] = lastUpdateFor[sid] as string
+      }
+    }
+  }
+
+  // 3) commit state
+  setRoster(next)
+  setRosterTimes(times)
+}
+
+
+
+
+
+
+
+
 
   async function handleSetStatus(studentId: string, st: Status, meta?: any) {
     // helper: status order to detect Undo (moving "backwards" in the flow)
