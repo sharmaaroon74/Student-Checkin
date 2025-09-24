@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import type { Status, StudentRow } from '../types'
 import TopToolbar from '../components/TopToolbar'
 
+
 type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
@@ -53,7 +54,17 @@ export default function BusPage({ students, roster, onSet }: Props) {
       checked: 0,
       skipped: 0,
     }
-    for (const s of base) c[(roster[s.id] ?? 'not_picked') as Status]++
+    for (const s of base) {
+      const st = (roster[s.id] ?? 'not_picked') as Status
+      if (st === 'not_picked') {
+        const yr = (s.school_year ?? '').trim()
+        if (s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)) {
+          c.not_picked++
+        }
+      } else {
+        c[st]++
+      }
+    }
     return c
   }, [base, roster])
 

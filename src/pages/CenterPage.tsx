@@ -2,6 +2,18 @@ import React, { useMemo, useState } from 'react'
 import type { Status, StudentRow } from '../types'
 import TopToolbar from '../components/TopToolbar'
 
+// Bus-eligible gates for TO PICK total (exclude B/H)
+const ALLOWED_SCHOOLS = ['Bain', 'QG', 'MHE', 'MC']
+const BUS_ELIGIBLE_YEARS = [
+  'FT - A',
+  'FT - B/A',
+  'PT3 - A - TWR',
+  'PT3 - A - MWF',
+  'PT2 - A - WR',
+  'PT3 - A - TWF',
+]
+
+
 type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
@@ -82,14 +94,21 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
 
   // Global counts (respect current school / search exactly like Skip/Bus)
   const counts = useMemo(() => {
+    // For TO PICK total, count only bus-eligible students currently not picked.
+    const notPickedCount = filtered.filter(s => {
+      const st = (roster[s.id] ?? 'not_picked') as Status
+      if (st !== 'not_picked') return false
+      const yr = (s.school_year ?? '').trim()
+      return s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)
+    }).length
     return {
-      not_picked: toPick.length,
+      not_picked: notPickedCount,
       picked: picked.length,
       arrived: arrived.length,
       checked: checked.length,
       skipped: skipped.length,
     }
-  }, [toPick.length, picked.length, arrived.length, checked.length, skipped.length])
+  }, [filtered, roster, picked.length, arrived.length, checked.length, skipped.length])
 
   // --- Modal handlers ---
   function openCheckoutModal(s: StudentRow) {
