@@ -4,10 +4,13 @@ import type { Status, StudentRow } from './types'
 import BusPage from './pages/BusPage'
 import CenterPage from './pages/CenterPage'
 import SkipPage from './pages/SkipPage'
+import ReportsPage from './pages/ReportsPage'
 import Login from './Login'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 
-type Page = 'bus' | 'center' | 'skip' // <-- ensure 'skip' included
+
+
+type Page = 'bus' | 'center' | 'skip' | 'reports'
 
 function todayKeyEST(): string {
   const now = new Date()
@@ -287,32 +290,12 @@ export default function App() {
       {/* Top nav + date + logout */}
       <div className="row wrap" style={{ marginBottom: 10, alignItems: 'center' }}>
         <div className="row gap">
-          <button
-            type="button"
-            className={`btn ${page==='bus'?'primary':''}`}
-            aria-current={page==='bus' ? 'page' : undefined}
-            onClick={() => setPage('bus')}
-          >
-            Bus
-          </button>
+          
 
-          <button
-            type="button"
-            className={`btn ${page==='center'?'primary':''}`}
-            aria-current={page==='center' ? 'page' : undefined}
-            onClick={() => setPage('center')}
-          >
-            Sunny Days
-          </button>
-
-          <button
-            type="button"
-            className={`btn ${page==='skip'?'primary':''}`}
-            aria-current={page==='skip' ? 'page' : undefined}
-            onClick={() => setPage('skip')} // <-- ensure exactly 'skip'
-          >
-            Skip
-          </button>
+        <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>BUS</button>
+        <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>Sunny Days</button>
+        <button className={page==='skip'?'btn primary':'btn'} onClick={()=>setPage('skip')}>SKIP</button>
+        <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>REPORTS</button>
 
           <div className="muted" style={{ marginLeft: 8 }}>{buildLabel}</div>
         </div>
