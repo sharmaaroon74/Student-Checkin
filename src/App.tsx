@@ -293,11 +293,10 @@ export default function App() {
           
 
         <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>BUS</button>
-        <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>Sunny Days</button>
+        <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>SUNNY DAYS</button>
         <button className={page==='skip'?'btn primary':'btn'} onClick={()=>setPage('skip')}>SKIP</button>
         <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>REPORTS</button>
 
-          <div className="muted" style={{ marginLeft: 8 }}>{buildLabel}</div>
         </div>
 
         <div className="row gap" style={{ marginLeft: 'auto', alignItems: 'center' }}>
@@ -331,6 +330,19 @@ export default function App() {
           onSet={handleSetStatus}
         />
       )}
+
+      {page === 'reports' && (
+        <ReportsPage />
+      )}
+
+      {page === 'skip' && (
+        <SkipPage
+          students={students}
+          roster={roster}
+          onSet={handleSetStatus}
+        />
+      )}
+      
     </div>
   )
 }
