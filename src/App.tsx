@@ -7,7 +7,7 @@ import SkipPage from './pages/SkipPage'
 import ReportsPage from './pages/ReportsPage'
 import Login from './Login'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
-
+import logo from './assets/sunnydays-logo.png'  
 
 
 type Page = 'bus' | 'center' | 'skip' | 'reports'
@@ -290,12 +290,18 @@ export default function App() {
       {/* Top nav + date + logout */}
       <div className="row wrap" style={{ marginBottom: 10, alignItems: 'center' }}>
         <div className="row gap">
+          {/* Brand: logo + wordmark (word hidden on small screens via CSS) */}
+          <div className="brand">
+            <img src={logo} alt="Sunny Days after school" />
+            <span className="title">Sunny Days</span>
+          </div>
           
 
-        <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>BUS</button>
-        <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>SUNNY DAYS</button>
-        <button className={page==='skip'?'btn primary':'btn'} onClick={()=>setPage('skip')}>SKIP</button>
-        <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>REPORTS</button>
+          <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>🚌 Bus</button>
+          <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>☀️ Sunny Days</button>
+          <button className={page==='skip'?'btn primary':'btn'} onClick={()=>setPage('skip')}>⏭️ Skip</button>
+          <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>📋 Reports</button>
+
 
         </div>
 
@@ -342,7 +348,7 @@ export default function App() {
           onSet={handleSetStatus}
         />
       )}
-      
+
     </div>
   )
 }
