@@ -176,84 +176,91 @@ export default function ReportsPage() {
     a.remove(); URL.revokeObjectURL(url)
   }
 
-  return (
-    <div className="container">
-      <div className="row wrap" style={{alignItems:'center', marginBottom:12}}>
-        <div className="row gap">
-          <label className="label">Date</label>
-          <input type="date" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
-          <label className="label">Sort</label>
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
-            <option value="first">First Name</option>
-            <option value="last">Last Name</option>
-          </select>
-          <label className="label">School</label>
-          <div className="seg">
-            {SCHOOL_FILTERS.map(opt => (
-              <button
-                key={opt}
-                className={`seg-btn ${school===opt?'on':''}`}
-                onClick={()=>setSchool(opt)}
-              >
-                {opt}
-              </button>
-            ))}
+    return (
+    <div className="container report-wrap">
+      {/* toolbar */}
+      <div className="card report-toolbar">
+        <div className="row wrap gap" style={{alignItems:'center'}}>
+           <label className="label">Date</label>
+           <input type="date" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
+           <label className="label">Sort</label>
+           <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
+             <option value="first">First Name</option>
+             <option value="last">Last Name</option>
+           </select>
+           <label className="label">School</label>
+          <div className="seg seg-scroll">
+             {SCHOOL_FILTERS.map(opt => (
+               <button
+                 key={opt}
+                 className={`seg-btn ${school===opt?'on':''}`}
+                 onClick={()=>setSchool(opt)}
+               >
+                 {opt}
+               </button>
+             ))}
+           </div>
+          <div className="row gap" style={{marginLeft:'auto'}}>
+           <label className="row" style={{gap:6}}>
+             <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
+             <span className="label">Hide no activity</span>
+           </label>
+           <label className="row" style={{gap:6}}>
+             <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
+             <span className="label">Hide skipped</span>
+           </label>
+           <button className="btn" onClick={exportCSV}>Download CSV</button>
           </div>
-        </div>
-        <div className="row gap" style={{marginLeft:'auto'}}>
-          <label className="row" style={{gap:6}}>
-            <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
-            <span className="label">Hide no activity</span>
-          </label>
-          <label className="row" style={{gap:6}}>
-            <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
-            <span className="label">Hide skipped</span>
-          </label>
-          <button className="btn" onClick={exportCSV}>Download CSV</button>
-        </div>
-      </div>
-
-      <div className="card">
-        {busy ? (
-          <div className="muted">Loading…</div>
-        ) : filteredSorted.length === 0 ? (
-          <div className="muted">No rows for this date.</div>
-        ) : (
-          <table style={{width:'100%', borderCollapse:'separate', borderSpacing: '0 8px'}}>
-            <thead>
-              <tr className="label" style={{textAlign:'left'}}>
-                <th>Student Name</th>
-                <th>School</th>
-                <th>School Pickup Time</th>
-                <th>Sunny Days Arrival Time</th>
-                <th>Checkout Time</th>
-                <th>Picked Up By</th>
-                <th>Current Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSorted.map((r) => {
-                const fmt = (iso?: string|null) =>
-                  iso ? new Intl.DateTimeFormat('en-US', {
-                    timeZone:'America/New_York',
-                    hour:'numeric', minute:'2-digit'
-                  }).format(new Date(iso)) : ''
-                return (
+         </div>
+      </div>{/* /toolbar */}
+ 
+      <div className="card report-table-card">
+         {busy ? (
+           <div className="muted">Loading…</div>
+         ) : filteredSorted.length === 0 ? (
+          <div className="muted" style={{padding:'8px 2px'}}>No rows for this date.</div>
+         ) : (
+          <div className="report-table-scroll">
+          <table className="report-table">
+            <thead className="report-thead">
+              <tr>
+                <th className="col-name">Student Name</th>
+                <th className="col-school">School</th>
+                <th className="col-time">School Pickup Time</th>
+                <th className="col-time">Sunny Days Arrival Time</th>
+                <th className="col-time">Checkout Time</th>
+                <th className="col-person">Picked Up By</th>
+                <th className="col-status">Current Status</th>
+               </tr>
+             </thead>
+            <tbody className="report-tbody">
+               {filteredSorted.map((r) => {
+                 const fmt = (iso?: string|null) =>
+                   iso ? new Intl.DateTimeFormat('en-US', {
+                     timeZone:'America/New_York',
+                     hour:'numeric', minute:'2-digit'
+                   }).format(new Date(iso)) : ''
+                 return (
                   <tr key={r.student_id}>
-                    <td>{r.student_name}</td>
-                    <td>{r.school}</td>
-                    <td>{fmt(r.picked_time)}</td>
-                    <td>{fmt(r.arrived_time)}</td>
-                    <td>{fmt(r.checked_time)}</td>
-                    <td>{r.pickup_person || ''}</td>
-                    <td>{r.final_status || ''}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
+                    <td className="cell-name">{r.student_name}</td>
+                    <td className="cell-school">{r.school}</td>
+                    <td className="cell-time">{fmt(r.picked_time)}</td>
+                    <td className="cell-time">{fmt(r.arrived_time)}</td>
+                    <td className="cell-time">{fmt(r.checked_time)}</td>
+                    <td className="cell-person">{r.pickup_person || ''}</td>
+                    <td className="cell-status">
+                      <span className={`pill ${String(r.final_status||'').toLowerCase()}`}>
+                        {r.final_status || ''}
+                      </span>
+                    </td>
+                   </tr>
+                 )
+               })}
+             </tbody>
           </table>
-        )}
-      </div>
-    </div>
-  )
-}
+          </div>
+         )}
+       </div>
+     </div>
+   )
+ }

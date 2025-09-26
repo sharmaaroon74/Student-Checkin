@@ -261,3 +261,80 @@ html, body {
   display: inline-flex;
   gap: 8px;
 }
+
+/* ===== Reports page polish ===== */
+.report-wrap { padding-top: 8px; }
+
+.report-toolbar {
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.report-table-card { padding: 0; }
+
+/* scroll container with sticky header */
+.report-table-scroll {
+  overflow: auto;
+  border-radius: 14px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 720px; /* keeps columns sensible on narrow viewports */
+}
+
+.report-thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f2f4f8;            /* subtle header tone */
+  color: #374151;
+  text-align: left;
+  font-weight: 700;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--b);
+}
+
+.report-tbody tr:nth-child(odd) { background: #fff; }
+.report-tbody tr:nth-child(even){ background: #fafbff; }
+
+.report-tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--b);
+}
+
+/* column widths / alignment */
+.col-name   { width: 28%; }
+.col-school { width: 10%; }
+.col-person { width: 20%; }
+.col-status { width: 14%; }
+.col-time   { width: 12%; text-align: right; }
+
+.cell-time  {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.cell-status { white-space: nowrap; }
+
+/* status pill */
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--b);
+  background: #fff;
+  color: #374151;
+}
+.pill.picked  { background: #eef7ff; border-color: #b9ddff; color: #0b5cab; }
+.pill.arrived { background: #eefbf3; border-color: #b7e8cc; color: #0b7a35; }
+.pill.checked { background: #f7f6ff; border-color: #cfc7ff; color: #4d39c4; }
+.pill.skipped { background: #fff4f4; border-color: #f6c7c7; color: #9b1c1c; }
+
+/* small screens: let table scroll horizontally */
+@media (max-width: 760px) {
+  .report-table { min-width: 640px; }
+}
