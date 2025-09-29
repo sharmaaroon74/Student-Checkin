@@ -47,6 +47,9 @@ export default function ReportsPage() {
   const [fromDate, setFromDate] = useState<string>('') // optional
   const [toDate, setToDate] = useState<string>('')     // optional
 
+  // ensure Daily report fetches once on initial mount
+  useEffect(() => { fetchDaily().catch(()=>{}) }, [])
+
   useEffect(() => {
     if (tab === 'daily') {
       fetchDaily().catch(()=>{})
@@ -176,8 +179,7 @@ export default function ReportsPage() {
       })
       return sorted
     } else {
-      const sorted = [...rows].sort((a,b) => a.last_name.localeCompare(b.last_name)) // by date asc
-      return sorted
+const sorted = [...rows].sort((a,b) => b.last_name.localeCompare(a.last_name)) // by date desc (YYYY-MM-DD)      return sorted
     }
   }, [rows, hideEmpty, sortKey, tab])
 
