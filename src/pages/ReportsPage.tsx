@@ -164,7 +164,7 @@ export default function ReportsPage() {
         `"${fmt(r.arrived_time)}"`,
         `"${fmt(r.checked_time)}"`,
         `"${(r.pickup_person ?? '').replace(/"/g,'""')}"`,
-        `"${(r.final_status ?? '').replace(/"/g,'""')}"`,
+        `"${(((r.final_status ?? '') as string).toLowerCase()==='checked' ? 'checked-out' : (r.final_status ?? '')).replace(/"/g,'""')}"`,
       ].join(','))
     }
     const blob = new Blob(["\uFEFF" + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
@@ -250,7 +250,7 @@ export default function ReportsPage() {
                     <td className="cell-person">{r.pickup_person || ''}</td>
                     <td className="cell-status">
                       <span className={`pill ${String(r.final_status||'').toLowerCase()}`}>
-                        {r.final_status || ''}
+                        {String(r.final_status||'').toLowerCase()==='checked' ? 'checked-out' : (r.final_status || '')}
                       </span>
                     </td>
                    </tr>
