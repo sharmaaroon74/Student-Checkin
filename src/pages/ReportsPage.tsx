@@ -164,7 +164,7 @@ export default function ReportsPage() {
         `"${fmt(r.arrived_time)}"`,
         `"${fmt(r.checked_time)}"`,
         `"${(r.pickup_person ?? '').replace(/"/g,'""')}"`,
-        `"${(((r.final_status ?? '') as string).toLowerCase()==='checked' ? 'checkd-out' : (r.final_status ?? '')).replace(/"/g,'""')}"`,
+        `"${(((r.final_status ?? '') as string).toLowerCase()==='checked' ? 'checked-out' : (r.final_status ?? '')).replace(/"/g,'""')}"`,
       ].join(','))
     }
     const blob = new Blob(["\uFEFF" + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
