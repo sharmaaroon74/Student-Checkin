@@ -64,8 +64,6 @@ export default function App() {
 
   const rosterDateEST = todayKeyEST()
 
-
-
   const [role, setRole] = useState<Role | null>(null)
   const [roleLoading, setRoleLoading] = useState(true)
 
@@ -75,7 +73,7 @@ export default function App() {
     ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { if (!cancelled) { setRole(null); setRoleLoading(false) } ; return }
-      const { data, error } = await supabase
+            const { data, error } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', user.id)
@@ -102,16 +100,9 @@ export default function App() {
     }
   }, [role, roleLoading, page])
 
-
-
-
-
-
-
-
-
   // Realtime + light polling fallback
-    useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
+  useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
+
   // Auth (email/password)
   useEffect(() => {
     let mounted = true
@@ -141,97 +132,91 @@ export default function App() {
 
     if (error) {
       console.error('[students] fetch error', error)
-      setStudents([])
-      return
+      setStudents([]); return
     }
     if (!data || data.length === 0) {
       console.warn('[students] 0 rows returned. Possible RLS block or empty table.')
-      setStudents([])
-      return
+      setStudents([]); return
     }
     setStudents(data as StudentRow[])
   }
 
-  
-
+  /* === CHANGED START: refetchTodayRoster now prefers meta.pickupTime for 'checked' logs === */
   async function refetchTodayRoster() {
-  // 1) fetch current roster rows for today
-  const { data, error } = await supabase
-    .from('roster_status')
-    .select('student_id, current_status, last_update')
-    .eq('roster_date', rosterDateEST)
-
-  if (error) {
-    console.error('[roster] fetch error', error)
-    return
-  }
-
-  const next: Record<string, Status> = {}
-  const idsNeedingEarliest: string[] = []
-  const statusFor: Record<string, Status> = {}
-  const lastUpdateFor: Record<string, string | null> = {}
-
-  for (const r of data ?? []) {
-    const st = r.current_status as Status
-    const id = r.student_id as string
-    next[id] = st
-    statusFor[id] = st
-    lastUpdateFor[id] = (r.last_update as string) ?? null
-    // only these statuses show a time in the UI
-    if (st === 'picked' || st === 'arrived' || st === 'checked') {
-      idsNeedingEarliest.push(id)
-    }
-  }
-
-  // 2) build times using the EARLIEST log time per (student, current_status) for today
-  const times: Record<string, string> = {}
-  if (idsNeedingEarliest.length > 0) {
-    // PostgREST: group by student_id, action and compute min(at)
-    // We filter action to only the three timed statuses.
-    const { data: logRows, error: logErr } = await supabase
-      .from('logs')
-      .select('student_id, action, at')
+    // 1) fetch current roster rows for today
+    const { data, error } = await supabase
+      .from('roster_status')
+      .select('student_id, current_status, last_update')
       .eq('roster_date', rosterDateEST)
-      .in('action', ['picked','arrived','checked'])
-      .in('student_id', idsNeedingEarliest)
 
-    if (logErr) {
-      console.warn('[logs earliest fetch] non-fatal:', logErr)
-    } else if (logRows && logRows.length) {
-      // reduce to earliest at per (student_id, action)
-      const earliest: Record<string, Record<string, string>> = {}
-      for (const row of logRows) {
-        const sid = row.student_id as string
-        const act = row.action as Status
-        const at  = row.at as string
-        earliest[sid] ??= {}
-        const existing = earliest[sid][act]
-        if (!existing || new Date(at).getTime() < new Date(existing).getTime()) {
-          earliest[sid][act] = at
+    if (error) {
+      console.error('[roster] fetch error', error)
+      return
+    }
+
+    const next: Record<string, Status> = {}
+    const idsNeedingEarliest: string[] = []
+    const statusFor: Record<string, Status> = {}
+    const lastUpdateFor: Record<string, string | null> = {}
+
+    for (const r of data ?? []) {
+      const st = r.current_status as Status
+      const id = r.student_id as string
+      next[id] = st
+      statusFor[id] = st
+      lastUpdateFor[id] = (r.last_update as string) ?? null
+      // only these statuses show a time in the UI
+      if (st === 'picked' || st === 'arrived' || st === 'checked') {
+        idsNeedingEarliest.push(id)
+      }
+    }
+
+    // 2) build times using the EARLIEST effective time per (student, current_status) for today
+    const times: Record<string, string> = {}
+    if (idsNeedingEarliest.length > 0) {
+      const { data: logRows, error: logErr } = await supabase
+        .from('logs')
+        .select('student_id, action, at, meta')  // <-- include meta
+        .eq('roster_date', rosterDateEST)
+        .in('action', ['picked','arrived','checked'])
+        .in('student_id', idsNeedingEarliest)
+
+      if (logErr) {
+        console.warn('[logs earliest fetch] non-fatal:', logErr)
+      } else if (logRows && logRows.length) {
+        const earliest: Record<string, Record<string, string>> = {}
+        for (const row of logRows) {
+          const sid = row.student_id as string
+          const act = row.action as Status
+          const rawAt = row.at as string
+          const meta = (row as any).meta || {}
+          // Prefer the override time saved by the modal for 'checked' logs
+          let effectiveAt = rawAt
+          if (act === 'checked' && meta && meta.pickupTime) {
+            const iso = estLocalToUtcIso(String(meta.pickupTime))
+            effectiveAt = iso ?? String(meta.pickupTime)
+          }
+          earliest[sid] ??= {}
+          const existing = earliest[sid][act]
+          if (!existing || new Date(effectiveAt).getTime() < new Date(existing).getTime()) {
+            earliest[sid][act] = effectiveAt
+          }
+        }
+        // set time only for the student's current status
+        for (const sid of idsNeedingEarliest) {
+          const st = statusFor[sid]
+          const t = earliest[sid]?.[st]
+          if (t) times[sid] = t
+          else if (lastUpdateFor[sid]) times[sid] = lastUpdateFor[sid] as string
         }
       }
-      // set time only for the student's current status
-      for (const sid of idsNeedingEarliest) {
-        const st = statusFor[sid]
-        const t = earliest[sid]?.[st]
-        if (t) times[sid] = t
-        else if (lastUpdateFor[sid]) times[sid] = lastUpdateFor[sid] as string
-      }
     }
+
+    // 3) commit state
+    setRoster(next)
+    setRosterTimes(times)
   }
-
-  // 3) commit state
-  setRoster(next)
-  setRosterTimes(times)
-}
-
-
-
-
-
-
-
-
+  /* === CHANGED END === */
 
   async function handleSetStatus(studentId: string, st: Status, meta?: any) {
     // helper: status order to detect Undo (moving "backwards" in the flow)
@@ -241,69 +226,65 @@ export default function App() {
 
     const prevStatus = (roster[studentId] ?? 'not_picked') as Status
     const prevTime   = rosterTimes[studentId] || null
-    // normalize: if admin override provided and no approved pickup selected,
-    // store it uniformly as pickupPerson in meta so logs & reports see it.
+
+    // normalize override person (unchanged)
     if (meta && !meta.pickupPerson && meta.override) {
       meta.pickupPerson = meta.override;
     }
 
-    const isUndo     = ORDER[st] < ORDER[prevStatus]  // e.g., checked -> arrived, arrived -> picked
+    const isUndo     = ORDER[st] < ORDER[prevStatus]
     const enrichedMeta = {
       ...(meta ?? {}),
       prev_status: prevStatus,
-      prev_time: prevTime, // ISO if available
+      prev_time: prevTime,
     }
 
-    /* === ADDED START: compute atIsoOverride from modal time for 'checked' === */
+    // compute an override ISO for immediate UI & fallback log insert
     let atIsoOverride: string | null = null
     if (st === 'checked' && enrichedMeta?.pickupTime) {
-      const iso = estLocalToUtcIso(String(enrichedMeta.pickupTime))
-      if (iso) atIsoOverride = iso
+      atIsoOverride = estLocalToUtcIso(String(enrichedMeta.pickupTime))
     }
-    /* === ADDED END === */
 
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
-       p_student_id: studentId,
-       p_new_status: st,
+      p_student_id: studentId,
+      p_new_status: st,
       p_meta: enrichedMeta,
-     })
+    })
 
     if (rpcErr) {
-       console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
-       const { error: upsertErr } = await supabase
-         .from('roster_status')
-         .upsert(
-           {
-             roster_date: rosterDateEST,
-             student_id: studentId,
-             current_status: st,
-             last_update: new Date().toISOString(),
-           },
-           { onConflict: 'roster_date,student_id' }
-         )
-       if (upsertErr) {
-         console.error('[roster_status upsert] error', upsertErr)
-         return
-       }
-      // best-effort log (ok if RLS blocks). Include student_name + enrichedMeta so history is preserved.
+      console.warn('[rpc api_set_status] error; trying direct upsert', rpcErr)
+      const { error: upsertErr } = await supabase
+        .from('roster_status')
+        .upsert(
+          {
+            roster_date: rosterDateEST,
+            student_id: studentId,
+            current_status: st,
+            last_update: new Date().toISOString(),
+          },
+          { onConflict: 'roster_date,student_id' }
+        )
+      if (upsertErr) {
+        console.error('[roster_status upsert] error', upsertErr)
+        return
+      }
+      // best-effort log
       const stu = students.find(s => s.id === studentId)
       const student_name = stu ? `${stu.first_name} ${stu.last_name}` : null
       const { error: logErr } = await supabase.from('logs').insert({
-        /* === CHANGED: prefer override time for the inserted log === */
-        at: atIsoOverride ?? new Date().toISOString(),
+        at: atIsoOverride ?? new Date().toISOString(),  // <-- prefer override here
         roster_date: rosterDateEST,
         student_id: studentId,
-        student_name,            // satisfies NOT NULL if found; if RLS/NOT NULL fails, we only warn
+        student_name,
         action: st,
         meta: enrichedMeta,
       })
       if (logErr) console.warn('[logs insert] ignored', logErr)
-     }
+    }
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
 
-    // For Undo, restore the ORIGINAL timestamp (first time that status was set today)
-    // from logs. Otherwise, keep "now" behavior (but prefer override for checked).
+    // Undo → restore original earliest time for that status; else prefer override/now
     let restoredAtIso: string | null = null
     if (isUndo) {
       const { data: tsRow, error: tsErr } = await supabase
@@ -318,13 +299,11 @@ export default function App() {
       if (!tsErr && tsRow?.at) {
         restoredAtIso = tsRow.at as string
       } else {
-        // fallback: if for any reason the log isn't found, keep "now"
         restoredAtIso = new Date().toISOString()
       }
     }
     setRosterTimes(prev => ({
       ...prev,
-      /* === CHANGED: prefer the override time for immediate UI unless it's an Undo === */
       [studentId]: restoredAtIso ?? (atIsoOverride ?? new Date().toISOString()),
     }))
   }
@@ -348,18 +327,13 @@ export default function App() {
     return (
       <Login onDone={async () => {
         setIsAuthed(true)
-
         // Prepare rows & auto-skip on server (EST-aware), then fetch fresh roster
-  try {
-  const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
-  if (error) {
-    // Safe to proceed; it likely means it was already prepared or RLS blocked logs insert
-    console.warn('[prepare_today] RPC error (non-fatal):', error)
-  }
-} catch (e) {
-  console.warn('[prepare_today] unexpected error (non-fatal):', e)
-}
-
+        try {
+          const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
+          if (error) console.warn('[prepare_today] RPC error (non-fatal):', error)
+        } catch (e) {
+          console.warn('[prepare_today] unexpected error (non-fatal):', e)
+        }
         await fetchStudents()
         await refetchTodayRoster()
       }} />
@@ -371,14 +345,13 @@ export default function App() {
       {/* Top nav + date + logout */}
       <div className="row wrap" style={{ marginBottom: 10, alignItems: 'center' }}>
         <div className="row gap">
-          {/* Brand: logo + wordmark (word hidden on small screens via CSS) */}
+          {/* Brand */}
           <div className="brand">
             <img src={logo} alt="Sunny Days after school" />
             <span className="title">Sunny Days</span>
           </div>
-          
 
-           {(!ENFORCE_ROLES || (role === 'driver' || role === 'admin')) && (
+          {(!ENFORCE_ROLES || (role === 'driver' || role === 'admin')) && (
             <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>🚌 Bus</button>
           )}
           {(!ENFORCE_ROLES || (role === 'staff' || role === 'admin')) && (
@@ -390,7 +363,6 @@ export default function App() {
           {(!ENFORCE_ROLES || (role === 'admin')) && (
             <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>📋 Reports</button>
           )}
-
         </div>
 
         <div className="row gap" style={{ marginLeft: 'auto', alignItems: 'center' }}>
@@ -401,11 +373,7 @@ export default function App() {
 
       {/* Render pages */}
       {page === 'bus' && (
-        <BusPage
-          students={students}
-          roster={roster}
-          onSet={handleSetStatus}
-        />
+        <BusPage students={students} roster={roster} onSet={handleSetStatus} />
       )}
 
       {page === 'center' && (
@@ -418,25 +386,14 @@ export default function App() {
       )}
 
       {page === 'skip' && (
-        <SkipPage
-          students={students}
-          roster={roster}
-          onSet={handleSetStatus}
-        />
+        <SkipPage students={students} roster={roster} onSet={handleSetStatus} />
       )}
 
-      {page === 'reports' && (
-        <ReportsPage />
-      )}
+      {page === 'reports' && <ReportsPage />}
 
       {page === 'skip' && (
-        <SkipPage
-          students={students}
-          roster={roster}
-          onSet={handleSetStatus}
-        />
+        <SkipPage students={students} roster={roster} onSet={handleSetStatus} />
       )}
-
     </div>
   )
 }
