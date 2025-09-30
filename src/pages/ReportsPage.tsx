@@ -22,6 +22,27 @@ function estDateString(d: Date): string {
   }).format(d)
 }
 
+// duration helpers kept local to ReportsPage to avoid touching shared utils
+function toDate(iso?: string | null): Date | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+function diffMinutes(a?: string | null, b?: string | null): number | null {
+  const d1 = toDate(a)
+  const d2 = toDate(b)
+  if (!d1 || !d2) return null
+  const ms = d2.getTime() - d1.getTime()
+  if (ms <= 0) return null
+  return Math.floor(ms / 60000)
+}
+function fmtHMM(totalMin: number): string {
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return `${h}h ${m}m`
+}
+const MIN_LONG_STAY = 4 * 60 // 4 hours in minutes
+
 export default function ReportsPage() {
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
@@ -30,6 +51,9 @@ export default function ReportsPage() {
   const [hideSkipped, setHideSkipped] = useState(true)
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
+
+  // new: only show >= 4h stays (unchecked by default)
+  const [onlyLongStays, setOnlyLongStays] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -125,7 +149,7 @@ export default function ReportsPage() {
       return parts.length ? parts[parts.length - 1] : ''
     }
 
-    return data
+    const base = data
       .map((r, i) => ({ r, i }))
       .sort((A, B) => {
         const a = A.r, b = B.r
@@ -138,7 +162,22 @@ export default function ReportsPage() {
         }
       })
       .map(x => x.r)
-  }, [rows, sortBy, hideNoActivity, hideSkipped, school])
+
+    // enrich with computed duration (only if >= 4h)
+    const enriched = base.map(r => {
+      const minutesFromPickup = diffMinutes(r.picked_time, r.checked_time)
+      const minutesFromArrival = diffMinutes(r.arrived_time, r.checked_time)
+      const minutes = minutesFromPickup ?? minutesFromArrival
+      const isLong = minutes !== null && minutes >= MIN_LONG_STAY
+      return Object.assign({}, r, {
+        __total_minutes: isLong ? minutes! : null,
+        __total_str: isLong ? fmtHMM(minutes!) : '',
+        __isLong: !!isLong,
+      })
+    })
+    return onlyLongStays ? enriched.filter(r => (r as any).__isLong) : enriched
+  }, [rows, sortBy, hideNoActivity, hideSkipped, school, onlyLongStays])
+
 
   function exportCSV() {
     const header = [
@@ -148,6 +187,7 @@ export default function ReportsPage() {
       'Sunny Days Arrival Time',
       'Checkout Time',
       'Picked Up By',
+      'Time @ Sunny (>=4h)',
       'Current Status',
     ]
     const fmt = (iso?: string | null) =>
@@ -164,6 +204,7 @@ export default function ReportsPage() {
         `"${fmt(r.arrived_time)}"`,
         `"${fmt(r.checked_time)}"`,
         `"${(r.pickup_person ?? '').replace(/"/g,'""')}"`,
+         `"${(((r as any).__total_str ?? '')).replace(/"/g,'""')}"`,
         `"${(((r.final_status ?? '') as string).toLowerCase()==='checked' ? 'checked-out' : (r.final_status ?? '')).replace(/"/g,'""')}"`,
       ].join(','))
     }
@@ -209,6 +250,15 @@ export default function ReportsPage() {
              <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
              <span className="label">Hide skipped</span>
            </label>
+
+           <label className="row" style={{gap:6}}>
+             <input
+               type="checkbox"
+               checked={onlyLongStays}
+               onChange={e=>setOnlyLongStays(e.target.checked)} />
+             <span className="label">Only show ≥ 4 hours</span>
+           </label>
+
            <button className="btn" onClick={exportCSV}>Download CSV</button>
           </div>
          </div>
@@ -230,6 +280,7 @@ export default function ReportsPage() {
                 <th className="col-time">Sunny Days Arrival Time</th>
                 <th className="col-time">Checkout Time</th>
                 <th className="col-person">Picked Up By</th>
+                <th className="col-time">Time @ Sunny Days</th>
                 <th className="col-status">Current Status</th>
                </tr>
              </thead>
@@ -248,6 +299,7 @@ export default function ReportsPage() {
                     <td className="cell-time">{fmt(r.arrived_time)}</td>
                     <td className="cell-time">{fmt(r.checked_time)}</td>
                     <td className="cell-person">{r.pickup_person || ''}</td>
+                    <td className="cell-time">{(r as any).__total_str || ''}</td>
                     <td className="cell-status">
                       <span className={`pill ${String(r.final_status||'').toLowerCase()}`}>
                         {String(r.final_status||'').toLowerCase()==='checked' ? 'checked-out' : (r.final_status || '')}
