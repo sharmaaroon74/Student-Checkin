@@ -29,6 +29,22 @@ function todayKeyEST(): string {
   }).format(now)
 }
 
+/* === ADDED START: helper to convert 'YYYY-MM-DDTHH:mm' (EST wall time) to UTC ISO === */
+function estLocalToUtcIso(local: string): string | null {
+  const [date, time] = local.split('T')
+  if (!date || !time) return null
+  const [y, mo, d] = date.split('-').map(Number)
+  const [hh, mm] = time.split(':').map(Number)
+  // Build a Date using America/New_York as the intended wall time
+  const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  estNow.setFullYear(y, mo - 1, d)
+  estNow.setHours(hh, mm, 0, 0)
+  // Convert to UTC ISO
+  const utcMs = estNow.getTime() - (estNow.getTimezoneOffset() * 60000)
+  return new Date(utcMs).toISOString()
+}
+/* === ADDED END === */
+
 function todayESTLabel(): string {
   const now = new Date()
   return new Intl.DateTimeFormat('en-US', {
@@ -85,6 +101,8 @@ export default function App() {
       setPage(next)
     }
   }, [role, roleLoading, page])
+
+
 
 
 
@@ -236,6 +254,14 @@ export default function App() {
       prev_time: prevTime, // ISO if available
     }
 
+    /* === ADDED START: compute atIsoOverride from modal time for 'checked' === */
+    let atIsoOverride: string | null = null
+    if (st === 'checked' && enrichedMeta?.pickupTime) {
+      const iso = estLocalToUtcIso(String(enrichedMeta.pickupTime))
+      if (iso) atIsoOverride = iso
+    }
+    /* === ADDED END === */
+
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
        p_student_id: studentId,
        p_new_status: st,
@@ -263,7 +289,8 @@ export default function App() {
       const stu = students.find(s => s.id === studentId)
       const student_name = stu ? `${stu.first_name} ${stu.last_name}` : null
       const { error: logErr } = await supabase.from('logs').insert({
-        at: new Date().toISOString(),
+        /* === CHANGED: prefer override time for the inserted log === */
+        at: atIsoOverride ?? new Date().toISOString(),
         roster_date: rosterDateEST,
         student_id: studentId,
         student_name,            // satisfies NOT NULL if found; if RLS/NOT NULL fails, we only warn
@@ -276,7 +303,7 @@ export default function App() {
     setRoster(prev => ({ ...prev, [studentId]: st }))
 
     // For Undo, restore the ORIGINAL timestamp (first time that status was set today)
-    // from logs. Otherwise, keep "now" behavior.
+    // from logs. Otherwise, keep "now" behavior (but prefer override for checked).
     let restoredAtIso: string | null = null
     if (isUndo) {
       const { data: tsRow, error: tsErr } = await supabase
@@ -297,7 +324,8 @@ export default function App() {
     }
     setRosterTimes(prev => ({
       ...prev,
-      [studentId]: restoredAtIso ?? new Date().toISOString(),
+      /* === CHANGED: prefer the override time for immediate UI unless it's an Undo === */
+      [studentId]: restoredAtIso ?? (atIsoOverride ?? new Date().toISOString()),
     }))
   }
 
