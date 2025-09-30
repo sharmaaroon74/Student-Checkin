@@ -86,8 +86,11 @@ export default function ReportsPage() {
         for (const lg of logs ?? []) {
           const sid = lg.student_id as string
           const act = lg.action as string
-          const at  = lg.at as string
           const meta = (lg as any).meta || {}
+          // Prefer override time from checkout modal when present (display-only)
+          const rawAt = lg.at as string
+          const at = (act === 'checked' && meta && meta.pickupTime) ? String(meta.pickupTime) : rawAt
+
           if (meta && meta.pickupPerson && !pickupBy.has(sid)) {
             pickupBy.set(sid, String(meta.pickupPerson))
           }
