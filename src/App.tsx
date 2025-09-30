@@ -11,6 +11,15 @@ import logo from './assets/sunnydays-logo.png'
 
 
 type Page = 'bus' | 'center' | 'skip' | 'reports'
+type Role = 'admin' | 'staff' | 'driver'
+const ENFORCE_ROLES: boolean = import.meta.env.VITE_ENFORCE_ROLES === 'true'
+
+const PERMS: Record<Page, Role[]> = {
+  bus: ['driver','admin'],
+  center: ['staff','admin'],
+  skip: ['admin'],
+  reports: ['admin'],
+}
 
 function todayKeyEST(): string {
   const now = new Date()
@@ -38,6 +47,50 @@ export default function App() {
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
 
   const rosterDateEST = todayKeyEST()
+
+
+
+  const [role, setRole] = useState<Role | null>(null)
+  const [roleLoading, setRoleLoading] = useState(true)
+
+  useEffect(() => {
+    if (!isAuthed) { setRole(null); setRoleLoading(false); return }
+    let cancelled = false
+    ;(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { if (!cancelled) { setRole(null); setRoleLoading(false) } ; return }
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single()
+      if (cancelled) return
+      if (error) { setRole(null); setRoleLoading(false); return }
+      setRole((data?.role ?? null) as Role | null)
+      setRoleLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [isAuthed])
+
+  function isAllowed(p: Page): boolean {
+    if (!ENFORCE_ROLES) return true
+    if (!role) return false
+    return PERMS[p].includes(role)
+  }
+
+  useEffect(() => {
+    if (!ENFORCE_ROLES || roleLoading) return
+    if (!isAllowed(page)) {
+      const next: Page = role === 'staff' ? 'center' : 'bus'
+      setPage(next)
+    }
+  }, [role, roleLoading, page])
+
+
+
+
+
+
 
   // Realtime + light polling fallback
     useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
@@ -297,11 +350,18 @@ export default function App() {
           </div>
           
 
-          <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>🚌 Bus</button>
-          <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>☀️ Sunny Days</button>
-          <button className={page==='skip'?'btn primary':'btn'} onClick={()=>setPage('skip')}>⏭️ Skip</button>
-          <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>📋 Reports</button>
-
+           {(!ENFORCE_ROLES || (role === 'driver' || role === 'admin')) && (
+            <button className={page==='bus'?'btn primary':'btn'} onClick={()=>setPage('bus')}>🚌 Bus</button>
+          )}
+          {(!ENFORCE_ROLES || (role === 'staff' || role === 'admin')) && (
+            <button className={page==='center'?'btn primary':'btn'} onClick={()=>setPage('center')}>☀️ Sunny Days</button>
+          )}
+          {(!ENFORCE_ROLES || (role === 'admin')) && (
+            <button className={page==='skip'?'btn primary':'btn'} onClick={()=>setPage('skip')}>⏭️ Skip</button>
+          )}
+          {(!ENFORCE_ROLES || (role === 'admin')) && (
+            <button className={page==='reports'?'btn primary':'btn'} onClick={()=>setPage('reports')}>📋 Reports</button>
+          )}
 
         </div>
 
