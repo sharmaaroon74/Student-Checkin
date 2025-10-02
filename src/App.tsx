@@ -30,19 +30,38 @@ function todayKeyEST(): string {
 }
 
 /* === ADDED START: helper to convert 'YYYY-MM-DDTHH:mm' (EST wall time) to UTC ISO === */
-function estLocalToUtcIso(local: string): string | null {
-  const [date, time] = local.split('T')
-  if (!date || !time) return null
-  const [y, mo, d] = date.split('-').map(Number)
-  const [hh, mm] = time.split(':').map(Number)
-  // Build a Date using America/New_York as the intended wall time
-  const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
-  estNow.setFullYear(y, mo - 1, d)
-  estNow.setHours(hh, mm, 0, 0)
-  // Convert to UTC ISO
-  const utcMs = estNow.getTime() - (estNow.getTimezoneOffset() * 60000)
-  return new Date(utcMs).toISOString()
-}
+
+ function estLocalToUtcIso(local: string): string | null {
+   // Interpret 'YYYY-MM-DDTHH:mm' as America/New_York wall time (handles DST correctly)
+   const [date, time] = local.split('T')
+   if (!date || !time) return null
+   const [y, mo, d] = date.split('-').map(Number)
+   const [hh, mm] = time.split(':').map(Number)
+   // desired local civil time as a millisecond value (in UTC scale)
+   const desiredLocalMs = Date.UTC(y, mo - 1, d, hh, mm, 0, 0)
+   let utcMs = desiredLocalMs // initial guess
+   const dtf = new Intl.DateTimeFormat('en-US', {
+     timeZone: 'America/New_York',
+     hour12: false,
+     year: 'numeric', month: '2-digit', day: '2-digit',
+     hour: '2-digit', minute: '2-digit'
+   })
+   // Iterate to solve utcMs such that NY time equals desiredLocalMs fields
+   for (let i = 0; i < 3; i++) {
+     const parts = dtf.formatToParts(new Date(utcMs))
+     const nyY   = Number(parts.find(p => p.type === 'year')?.value)
+     const nyMo  = Number(parts.find(p => p.type === 'month')?.value)
+     const nyD   = Number(parts.find(p => p.type === 'day')?.value)
+     const nyH   = Number(parts.find(p => p.type === 'hour')?.value)
+     const nyMin = Number(parts.find(p => p.type === 'minute')?.value)
+     const renderedLocalMs = Date.UTC(nyY, nyMo - 1, nyD, nyH, nyMin, 0, 0)
+     const diff = desiredLocalMs - renderedLocalMs
+     if (diff === 0) break
+     utcMs += diff
+   }
+   return new Date(utcMs).toISOString()
+ }
+
 /* === ADDED END === */
 
 function todayESTLabel(): string {
@@ -191,10 +210,10 @@ export default function App() {
 
           const rawAt = row.at as string
           const meta = (row as any).meta || {}
-          // Convert modal EST datetime-local to UTC ISO so UI renders in EST correctly.
-          const effectiveAt =
-            (act === 'checked' && meta && meta.pickupTime)
-              ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
+           // Prefer modal time; convert EST local → UTC ISO so Center renders EST correctly.
+           const effectiveAt =
+             (act === 'checked' && meta && meta.pickupTime)
+               ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
               : rawAt
 
           earliest[sid] ??= {}
@@ -244,12 +263,11 @@ export default function App() {
       prev_time: prevTime,
     }
 
-      // Convert modal datetime-local (EST) to UTC ISO for consistent UI rendering.
-  // This prevents timezone drift on CenterPage.
-  const atOverrideLocal: string | null =
-    (st === 'checked' && enrichedMeta?.pickupTime)
-      ? (estLocalToUtcIso(String(enrichedMeta.pickupTime)) ?? String(enrichedMeta.pickupTime))
-      : null
+       // Convert modal datetime-local (EST) to UTC ISO for consistent UI rendering.
+   const atOverrideLocal: string | null =
+     (st === 'checked' && enrichedMeta?.pickupTime)
+       ? (estLocalToUtcIso(String(enrichedMeta.pickupTime)) ?? String(enrichedMeta.pickupTime))
+       : null
 
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
       p_student_id: studentId,
