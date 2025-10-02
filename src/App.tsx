@@ -174,9 +174,9 @@ export default function App() {
     // 2) build times using the EARLIEST effective time per (student, current_status) for today
     const times: Record<string, string> = {}
     if (idsNeedingEarliest.length > 0) {
-      const { data: logRows, error: logErr } = await supabase
-        .from('logs')
-        .select('student_id, action, at, meta')  // <-- include meta
+    const { data: logRows, error: logErr } = await supabase
+      .from('logs')
+      .select('student_id, action, at, meta')
         .eq('roster_date', rosterDateEST)
         .in('action', ['picked','arrived','checked'])
         .in('student_id', idsNeedingEarliest)
@@ -188,14 +188,15 @@ export default function App() {
         for (const row of logRows) {
           const sid = row.student_id as string
           const act = row.action as Status
+
           const rawAt = row.at as string
           const meta = (row as any).meta || {}
-          // Prefer the override time saved by the modal for 'checked' logs
-          let effectiveAt = rawAt
-          if (act === 'checked' && meta && meta.pickupTime) {
-            const iso = estLocalToUtcIso(String(meta.pickupTime))
-            effectiveAt = iso ?? String(meta.pickupTime)
-          }
+          // Convert modal EST datetime-local to UTC ISO so UI renders in EST correctly.
+          const effectiveAt =
+            (act === 'checked' && meta && meta.pickupTime)
+              ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
+              : rawAt
+
           earliest[sid] ??= {}
           const existing = earliest[sid][act]
           if (!existing || new Date(effectiveAt).getTime() < new Date(existing).getTime()) {
@@ -205,9 +206,13 @@ export default function App() {
         // set time only for the student's current status
         for (const sid of idsNeedingEarliest) {
           const st = statusFor[sid]
-          const t = earliest[sid]?.[st]
+          let t = earliest[sid]?.[st]
+          // If currently 'checked' and there was no meta override/log captured,
+          // fall back to roster_status.last_update so UI shows the latest checkout time for the day.
+          if (!t && st === 'checked' && lastUpdateFor[sid]) {
+            t = lastUpdateFor[sid] as string
+          }
           if (t) times[sid] = t
-          else if (lastUpdateFor[sid]) times[sid] = lastUpdateFor[sid] as string
         }
       }
     }
@@ -239,11 +244,12 @@ export default function App() {
       prev_time: prevTime,
     }
 
-    // compute an override ISO for immediate UI & fallback log insert
-    let atIsoOverride: string | null = null
-    if (st === 'checked' && enrichedMeta?.pickupTime) {
-      atIsoOverride = estLocalToUtcIso(String(enrichedMeta.pickupTime))
-    }
+      // Convert modal datetime-local (EST) to UTC ISO for consistent UI rendering.
+  // This prevents timezone drift on CenterPage.
+  const atOverrideLocal: string | null =
+    (st === 'checked' && enrichedMeta?.pickupTime)
+      ? (estLocalToUtcIso(String(enrichedMeta.pickupTime)) ?? String(enrichedMeta.pickupTime))
+      : null
 
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
       p_student_id: studentId,
@@ -271,8 +277,9 @@ export default function App() {
       // best-effort log
       const stu = students.find(s => s.id === studentId)
       const student_name = stu ? `${stu.first_name} ${stu.last_name}` : null
-      const { error: logErr } = await supabase.from('logs').insert({
-        at: atIsoOverride ?? new Date().toISOString(),  // <-- prefer override here
+           const { error: logErr } = await supabase.from('logs').insert({
+        at: new Date().toISOString(),
+
         roster_date: rosterDateEST,
         student_id: studentId,
         student_name,
@@ -304,7 +311,9 @@ export default function App() {
     }
     setRosterTimes(prev => ({
       ...prev,
-      [studentId]: restoredAtIso ?? (atIsoOverride ?? new Date().toISOString()),
+      // If undo: use restoredAtIso (earliest real log).
+      // Else: prefer the modal's local (EST) time string for immediate UI; fallback to now.
+      [studentId]: restoredAtIso ?? (atOverrideLocal ?? new Date().toISOString()),
     }))
   }
 
