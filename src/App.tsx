@@ -191,11 +191,10 @@ export default function App() {
 
           const rawAt = row.at as string
           const meta = (row as any).meta || {}
-          // Prefer checkout modal time (stored as datetime-local EST string) when present.
-          // IMPORTANT: do NOT convert; CenterPage/Reports will format with EST.
+          // Convert modal EST datetime-local to UTC ISO so UI renders in EST correctly.
           const effectiveAt =
             (act === 'checked' && meta && meta.pickupTime)
-              ? String(meta.pickupTime)
+              ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
               : rawAt
 
           earliest[sid] ??= {}
@@ -245,10 +244,12 @@ export default function App() {
       prev_time: prevTime,
     }
 
-      // Use the modal's datetime-local string as-is (EST wall-time) for UI only.
-  // Do NOT convert; CenterPage formats with timeZone: 'America/New_York'.
+      // Convert modal datetime-local (EST) to UTC ISO for consistent UI rendering.
+  // This prevents timezone drift on CenterPage.
   const atOverrideLocal: string | null =
-    (st === 'checked' && enrichedMeta?.pickupTime) ? String(enrichedMeta.pickupTime) : null
+    (st === 'checked' && enrichedMeta?.pickupTime)
+      ? (estLocalToUtcIso(String(enrichedMeta.pickupTime)) ?? String(enrichedMeta.pickupTime))
+      : null
 
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
       p_student_id: studentId,
