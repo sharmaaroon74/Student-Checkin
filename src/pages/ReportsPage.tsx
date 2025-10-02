@@ -68,7 +68,8 @@ export default function ReportsPage() {
 
         const { data: roster, error: rErr } = await supabase
           .from('roster_status')
-          .select('student_id, current_status')
+          .select('student_id, current_status, last_update')
+
           .eq('roster_date', dateStr)
         if (rErr) throw rErr
 
@@ -104,8 +105,10 @@ export default function ReportsPage() {
         }
 
         const finalStatus = new Map<string,string>()
+        const lastUpdate  = new Map<string,string>()        
         for (const r of roster ?? []) {
           finalStatus.set(r.student_id as string, r.current_status as string)
+          if (r.last_update) lastUpdate.set(r.student_id as string, r.last_update as string)
         }
 
         const toDisplay: Row[] = (students ?? []).map(st => {
@@ -116,7 +119,14 @@ export default function ReportsPage() {
             school: (st.school as string) ?? '',
             picked_time: pickedEarliest.get(sid) || null,
             arrived_time: arrivedEarliest.get(sid) || null,
-            checked_time: checkedEarliest.get(sid) || null,
+
+            // Use earliest 'checked' from logs (respecting meta.pickupTime),
+            // else if currently checked today, fall back to roster_status.last_update.
+            checked_time: checkedEarliest.get(sid)
+               || (String(finalStatus.get(sid) || '').toLowerCase()==='checked'
+                   ? (lastUpdate.get(sid) || null)
+                   : null),
+
             pickup_person: pickupBy.get(sid) || null,
             final_status: finalStatus.get(sid) || null,
           }
