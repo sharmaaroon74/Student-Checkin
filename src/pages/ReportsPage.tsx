@@ -1,3 +1,4 @@
+// src/pages/ReportsPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -11,6 +12,7 @@ type Row = {
   pickup_person?: string | null
   final_status?: string | null
   approved_pickups?: string[] | null
+  __apRawType?: 'string' | 'json' // how the DB stored the approved_pickups column for this student
 }
 
 const SCHOOL_FILTERS: Array<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'> = ['All','Bain','QG','MHE','MC']
@@ -52,20 +54,22 @@ function estLocalToUtcIso(local: string): string | null {
 }
 
 export default function ReportsPage() {
-  // global view switch
+  // top-level tabs
   const [view, setView] = useState<'daily'|'approved'|'history'>('daily')
 
-  // DAILY state
+  // DAILY tab state
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
   const [school, setSchool] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
   const [hideNoActivity, setHideNoActivity] = useState(true)
   const [hideSkipped, setHideSkipped] = useState(true)
   const [onlyLongStays, setOnlyLongStays] = useState(false)
+
+  // shared
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
 
-  // DAILY: load data
+  // Fetch for DAILY view only (original behavior)
   useEffect(() => {
     if (view !== 'daily') return
     let alive = true
@@ -125,6 +129,12 @@ export default function ReportsPage() {
 
         const toDisplay: Row[] = (students ?? []).map(st => {
           const sid = st.id as string
+          const apRaw = (st as any).approved_pickups
+          const isString = typeof apRaw === 'string'
+          let apList: string[] | null = null
+          if (Array.isArray(apRaw)) apList = apRaw as string[]
+          else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
+
           const checked =
             checkedEarliest.get(sid) ||
             (String(finalStatus.get(sid) || '').toLowerCase()==='checked'
@@ -140,7 +150,8 @@ export default function ReportsPage() {
             checked_time: checked,
             pickup_person: pickupBy.get(sid) || null,
             final_status: finalStatus.get(sid) || null,
-            approved_pickups: (st as any).approved_pickups ?? null,
+            approved_pickups: apList,
+            __apRawType: isString ? 'string' : 'json',
           }
         })
 
@@ -155,37 +166,29 @@ export default function ReportsPage() {
       }
     })()
     return () => { alive = false }
-  }, [view, dateStr])
+  }, [dateStr, view])
 
-  // DAILY: filter/sort and compute 4+ hours
+  // DAILY derived data
   const filteredSorted = useMemo(() => {
     if (view !== 'daily') return []
     let data = [...rows]
     if (school !== 'All') data = data.filter(r => r.school === school)
-    if (hideNoActivity) {
-      data = data.filter(r => (r.picked_time || r.arrived_time || r.checked_time))
-    }
-    if (hideSkipped) {
-      data = data.filter(r => (r.final_status ?? '').toLowerCase() !== 'skipped')
-    }
+    if (hideNoActivity) data = data.filter(r => (r.picked_time || r.arrived_time || r.checked_time))
+    if (hideSkipped) data = data.filter(r => (r.final_status ?? '').toLowerCase() !== 'skipped')
 
+    // total time @ Sunny Days (>= 4h only displayed)
     const fourHoursMs = 4 * 60 * 60 * 1000
     data = data.map(r => {
-      let refStart: string | null = null
-      if (r.picked_time) refStart = r.picked_time
-      else if (r.arrived_time) refStart = r.arrived_time
+      let refStart: string | null = r.picked_time || r.arrived_time || null
       const end = r.checked_time || null
       let totalMs: number | null = null
       if (refStart && end) {
         const t0 = new Date(refStart).getTime()
         const t1 = new Date(end).getTime()
-        if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 > t0) {
-          totalMs = t1 - t0
-        }
+        if (!Number.isNaN(t0) && !Number.isNaN(t1) && t1 > t0) totalMs = t1 - t0
       }
       const totalStr = (() => {
-        if (totalMs === null) return ''
-        if (totalMs < fourHoursMs) return ''
+        if (totalMs === null || totalMs < fourHoursMs) return ''
         const mins = Math.round(totalMs / 60000)
         const h = Math.floor(mins / 60)
         const m = mins % 60
@@ -195,10 +198,7 @@ export default function ReportsPage() {
       ;(r as any).__total_str = totalStr
       return r
     })
-
-    if (onlyLongStays) {
-      data = data.filter(r => ((r as any).__total_ms ?? 0) >= fourHoursMs)
-    }
+    if (onlyLongStays) data = data.filter(r => ((r as any).__total_ms ?? 0) >= fourHoursMs)
 
     const norm = (s: string) => s.toLowerCase().trim()
     const last = (full: string) => {
@@ -206,7 +206,6 @@ export default function ReportsPage() {
       const parts = noParen.split(' ')
       return parts.length ? parts[parts.length - 1] : ''
     }
-
     return data
       .map((r, i) => ({ r, i }))
       .sort((A, B) => {
@@ -220,26 +219,17 @@ export default function ReportsPage() {
         }
       })
       .map(x => x.r)
-  }, [view, rows, sortBy, hideNoActivity, hideSkipped, school, onlyLongStays])
+  }, [rows, sortBy, hideNoActivity, hideSkipped, school, onlyLongStays, view])
 
-  // DAILY: CSV
+  // CSV (Daily only)
   function exportCSV() {
     if (view !== 'daily') return
     const header = [
-      'Student Name',
-      'School',
-      'School Pickup Time',
-      'Sunny Days Arrival Time',
-      'Checkout Time',
-      'Picked Up By',
-      'Time @ Sunny Days',
-      'Current Status',
+      'Student Name','School','School Pickup Time','Sunny Days Arrival Time',
+      'Checkout Time','Picked Up By','Time @ Sunny Days','Current Status',
     ]
     const fmt = (iso?: string | null) =>
-      iso ? new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        hour: 'numeric', minute: '2-digit'
-      }).format(new Date(iso)) : ''
+      iso ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)) : ''
     const lines = [header.join(',')]
     for (const r of filteredSorted) {
       lines.push([
@@ -263,66 +253,63 @@ export default function ReportsPage() {
   }
 
   const fmtCell = (iso?: string|null) =>
-    iso ? new Intl.DateTimeFormat('en-US', {
-      timeZone:'America/New_York',
-      hour:'numeric', minute:'2-digit'
-    }).format(new Date(iso)) : ''
+    iso ? new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'numeric', minute:'2-digit' }).format(new Date(iso)) : ''
 
   return (
     <div className="container report-wrap">
-      {/* top-level tabs */}
+      {/* toolbar */}
       <div className="card report-toolbar">
+        {/* Row 1: Tabs only */}
         <div className="row wrap gap" style={{alignItems:'center'}}>
           <div className="seg">
             <button className={`seg-btn ${view==='daily'?'on':''}`} onClick={()=>setView('daily')}>Daily</button>
             <button className={`seg-btn ${view==='approved'?'on':''}`} onClick={()=>setView('approved')}>Approved Pickups</button>
             <button className={`seg-btn ${view==='history'?'on':''}`} onClick={()=>setView('history')}>Student History</button>
           </div>
-
-          {/* DAILY filters only when Daily tab is active */}
-          {view === 'daily' && (
-            <>
-              <label className="label" style={{marginLeft:8}}>Date</label>
-              <input type="date" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
-              <label className="label">Sort</label>
-              <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
-                <option value="first">First Name</option>
-                <option value="last">Last Name</option>
-              </select>
-              <label className="label">School</label>
-              <div className="seg seg-scroll">
-                {SCHOOL_FILTERS.map(opt => (
-                  <button
-                    key={opt}
-                    className={`seg-btn ${school===opt?'on':''}`}
-                    onClick={()=>setSchool(opt)}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-
-              <div className="row gap" style={{marginLeft:'auto'}}>
-                <label className="row" style={{gap:6}}>
-                  <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
-                  <span className="label">Hide no activity</span>
-                </label>
-                <label className="row" style={{gap:6}}>
-                  <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
-                  <span className="label">Hide skipped</span>
-                </label>
-                <label className="row" style={{gap:6}}>
-                  <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
-                  <span className="label">Only show ≥ 4 hours</span>
-                </label>
-                <button className="btn" onClick={exportCSV}>Download CSV</button>
-              </div>
-            </>
-          )}
         </div>
-      </div>
 
-      {/* DAILY VIEW */}
+        {/* Row 2: Daily-only controls */}
+        {view==='daily' && (
+          <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
+            <label className="label">Date</label>
+            <input type="date" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
+            <label className="label">Sort</label>
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
+              <option value="first">First Name</option>
+              <option value="last">Last Name</option>
+            </select>
+            <label className="label">School</label>
+            <div className="seg seg-scroll">
+              {SCHOOL_FILTERS.map(opt => (
+                <button
+                  key={opt}
+                  className={`seg-btn ${school===opt?'on':''}`}
+                  onClick={()=>setSchool(opt)}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <div className="row gap" style={{marginLeft:'auto'}}>
+              <label className="row" style={{gap:6}}>
+                <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
+                <span className="label">Hide no activity</span>
+              </label>
+              <label className="row" style={{gap:6}}>
+                <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
+                <span className="label">Hide skipped</span>
+              </label>
+              <label className="row" style={{gap:6}}>
+                <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
+                <span className="label">Only show ≥ 4 hours</span>
+              </label>
+              <button className="btn" onClick={exportCSV}>Download CSV</button>
+            </div>
+          </div>
+        )}
+      </div>{/* /toolbar */}
+
+      {/* DAILY VIEW (original report) */}
       {view === 'daily' && (
         <div className="card report-table-card">
           {busy ? (
@@ -368,49 +355,56 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* APPROVED PICKUPS */}
+      {/* APPROVED PICKUPS (names-only CRUD; persists in DB) */}
       {view === 'approved' && (
         <div className="card report-table-card">
-          <div className="report-table-scroll">
-            <table className="report-table">
-              <thead className="report-thead">
-                <tr>
-                  <th className="col-name">Student Name</th>
-                  <th className="col-school">School</th>
-                  <th className="col-person">Approved Pickups</th>
-                  <th className="col-person">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="report-tbody">
-                {rows
-                  .slice()
-                  .sort((a,b)=>a.student_name.localeCompare(b.student_name))
-                  .map((r)=>(
-                  <ApprovedRow key={r.student_id} row={r} onSaved={async ()=>{
-                    // refresh that one student's approved list from DB
-                    const { data: fresh, error } = await supabase
-                      .from('students')
-                      .select('id, approved_pickups')
-                      .eq('id', r.student_id)
-                      .maybeSingle()
-                    if (error) {
-                      console.error('[approved] refresh error', error)
-                      alert('Reload failed')
-                    }
-                    if (fresh) {
-                      setRows(prev => prev.map(p => p.student_id===r.student_id
-                        ? {...p, approved_pickups: (fresh as any).approved_pickups ?? null}
-                        : p))
-                    }
-                  }} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {busy ? (
+            <div className="muted">Loading…</div>
+          ) : rows.length === 0 ? (
+            <div className="muted" style={{padding:'8px 2px'}}>No students.</div>
+          ) : (
+            <div className="report-table-scroll">
+              <table className="report-table">
+                <thead className="report-thead">
+                  <tr>
+                    <th className="col-name">Student Name</th>
+                    <th className="col-school">School</th>
+                    <th className="col-person">Approved Pickups</th>
+                    <th className="col-person">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="report-tbody">
+                  {rows
+                    .slice()
+                    .sort((a,b)=>a.student_name.localeCompare(b.student_name))
+                    .map((r)=>(
+                    <ApprovedRow key={r.student_id} row={r} onSaved={async ()=>{
+                      const { data: fresh, error } = await supabase
+                        .from('students')
+                        .select('id, approved_pickups')
+                        .eq('id', r.student_id)
+                        .select() // representation
+                        .maybeSingle()
+                      if (!error && fresh) {
+                        const apRaw = (fresh as any).approved_pickups
+                        const isString = typeof apRaw === 'string'
+                        let apList: string[] | null = null
+                        if (Array.isArray(apRaw)) apList = apRaw as string[]
+                        else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
+                        setRows(prev => prev.map(p => p.student_id===r.student_id
+                          ? {...p, approved_pickups: apList, __apRawType: isString ? 'string' : 'json'}
+                          : p))
+                      }
+                    }} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {/* STUDENT HISTORY */}
+      {/* STUDENT HISTORY (date range + editable times; persists in DB) */}
       {view === 'history' && (
         <StudentHistoryBlock />
       )}
@@ -426,22 +420,25 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
   const [draft, setDraft] = React.useState('')
 
   async function save() {
-    const clean = items
-      .map(s => String(s).trim())
-      .filter(s => s.length > 0)
-    try {
-      const { error } = await supabase
-        .from('students')
-        .update({ approved_pickups: clean })
-        .eq('id', row.student_id)
-        .select()
-        .single()
-      if (error) throw error
+    const clean = items.map(s => String(s).trim()).filter(s => s.length > 0)
+
+    // Persist in the same format the DB used for this student
+    const payload =
+      row.__apRawType === 'string'
+        ? { approved_pickups: JSON.stringify(clean) }
+        : { approved_pickups: clean }
+
+    const { error } = await supabase
+      .from('students')
+      .update(payload)
+      .eq('id', row.student_id)
+      .select() // IMPORTANT: avoid "single JSON" coercion by not using .single()
+    if (!error) {
       setEditing(false)
       await onSaved()
-    } catch (e:any) {
-      console.error('[approved] save error', e)
-      alert(`Save failed: ${e?.message || e}`)
+    } else {
+      console.error('[approved_pickups save] error', error)
+      alert(`Save failed: ${String((error as any)?.message || error)}`)
     }
   }
   return (
@@ -517,7 +514,7 @@ function StudentHistoryBlock() {
     return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)
   })
   const [loading, setLoading] = React.useState(false)
-  const [rows, setRows] = React.useState<Array<{id:number, roster_date:string, action:'picked'|'arrived'|'checked'|'skipped'|'not_picked', at:string, meta:any, student_name:string}>>([])
+  const [rows, setRows] = React.useState<Array<{id:number, roster_date:string, action:string, at:string, meta:any, student_name:string}>>([])
   const [students, setStudents] = React.useState<Array<{id:string, name:string}>>([])
 
   React.useEffect(()=>{(async()=>{
@@ -552,30 +549,26 @@ function StudentHistoryBlock() {
   async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
     try {
       if (action === 'checked') {
-        // merge pickupTime into existing meta to avoid losing other fields
-        const nextMeta = { ...(currentMeta || {}), pickupTime: local }
+        const merged = { ...(currentMeta || {}), pickupTime: local }
         const { error } = await supabase
           .from('logs')
-          .update({ meta: nextMeta })
+          .update({ meta: merged })
           .eq('id', logId)
-          .select()
-          .single()
+          .select()   // avoid "single JSON" coercion
         if (error) throw error
       } else {
-        const iso = estLocalToUtcIso(local) ?? new Date().toISOString()
+        const iso = estLocalToUtcIso(local)
         const { error } = await supabase
           .from('logs')
-          .update({ at: iso })
+          .update({ at: iso ?? new Date().toISOString() })
           .eq('id', logId)
-          .select()
-          .single()
+          .select()   // avoid "single JSON" coercion
         if (error) throw error
       }
       await run()
-      alert('Saved.')
-    } catch (e:any) {
+    } catch (e: any) {
       console.error('[history] saveTime', e)
-      alert(`Save failed: ${e?.message || e}`)
+      alert(`Save failed: ${String(e?.message || e)}`)
     }
   }
 
@@ -633,12 +626,7 @@ function StudentHistoryBlock() {
                         />
                         <button
                           className="btn"
-                          onClick={()=>saveTime(
-                            r.id,
-                            r.action,
-                            (r as any).__new || localInput,
-                            r.meta
-                          )}
+                          onClick={()=>saveTime(r.id, r.action, (r as any).__new || localInput, r.meta)}
                         >
                           Save
                         </button>
