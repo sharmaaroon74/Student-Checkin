@@ -12,7 +12,7 @@ type Row = {
   pickup_person?: string | null
   final_status?: string | null
   approved_pickups?: string[] | null
-  __apRawType?: 'string' | 'json' // how the DB stored the approved_pickups column for this student
+  __apRawType?: 'string' | 'json'
 }
 
 const SCHOOL_FILTERS: Array<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'> = ['All','Bain','QG','MHE','MC']
@@ -54,7 +54,7 @@ function estLocalToUtcIso(local: string): string | null {
 }
 
 export default function ReportsPage() {
-  // top-level tabs
+  // tabs
   const [view, setView] = useState<'daily'|'approved'|'history'>('daily')
 
   // DAILY tab state
@@ -69,7 +69,46 @@ export default function ReportsPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
 
-  // Fetch for DAILY view only (original behavior)
+  // Ensure rows exist for Approved tab too (so you don't have to open Daily first)
+  useEffect(() => {
+    if (view !== 'approved') return
+    let alive = true
+    ;(async () => {
+      setBusy(true)
+      try {
+        const { data, error } = await supabase
+          .from('students')
+          .select('id, first_name, last_name, school, approved_pickups')
+          .eq('active', true)
+        if (error) throw error
+        const list: Row[] = (data||[]).map((st:any)=> {
+          const apRaw = st.approved_pickups
+          const isString = typeof apRaw === 'string'
+          let apList: string[] | null = null
+          if (Array.isArray(apRaw)) apList = apRaw as string[]
+          else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
+          return {
+            student_id: st.id,
+            student_name: `${st.first_name} ${st.last_name}`,
+            school: st.school ?? '',
+            approved_pickups: apList,
+            __apRawType: isString ? 'string' : 'json',
+          }
+        })
+        if (!alive) return
+        setRows(list)
+      } catch (e) {
+        if (!alive) return
+        console.error('[approved] fetch failed', e)
+        setRows([])
+      } finally {
+        if (alive) setBusy(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [view])
+
+  // DAILY fetch (original behavior)
   useEffect(() => {
     if (view !== 'daily') return
     let alive = true
@@ -168,7 +207,7 @@ export default function ReportsPage() {
     return () => { alive = false }
   }, [dateStr, view])
 
-  // DAILY derived data
+  // DAILY derived
   const filteredSorted = useMemo(() => {
     if (view !== 'daily') return []
     let data = [...rows]
@@ -176,7 +215,6 @@ export default function ReportsPage() {
     if (hideNoActivity) data = data.filter(r => (r.picked_time || r.arrived_time || r.checked_time))
     if (hideSkipped) data = data.filter(r => (r.final_status ?? '').toLowerCase() !== 'skipped')
 
-    // total time @ Sunny Days (>= 4h only displayed)
     const fourHoursMs = 4 * 60 * 60 * 1000
     data = data.map(r => {
       let refStart: string | null = r.picked_time || r.arrived_time || null
@@ -268,7 +306,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Row 2: Daily-only controls */}
+        {/* Row 2: Daily-only controls (all on one line with school filters, plus Download) */}
         {view==='daily' && (
           <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
             <label className="label">Date</label>
@@ -290,26 +328,26 @@ export default function ReportsPage() {
                 </button>
               ))}
             </div>
-            <div className="row gap" style={{marginLeft:'auto'}}>
-              <label className="row" style={{gap:6}}>
-                <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
-                <span className="label">Hide no activity</span>
-              </label>
-              <label className="row" style={{gap:6}}>
-                <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
-                <span className="label">Hide skipped</span>
-              </label>
-              <label className="row" style={{gap:6}}>
-                <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
-                <span className="label">Only show ≥ 4 hours</span>
-              </label>
-              <button className="btn" onClick={exportCSV}>Download CSV</button>
-            </div>
+
+            {/* moved right next to school filters */}
+            <label className="row" style={{gap:6}}>
+              <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
+              <span className="label">Hide no activity</span>
+            </label>
+            <label className="row" style={{gap:6}}>
+              <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
+              <span className="label">Hide skipped</span>
+            </label>
+            <label className="row" style={{gap:6}}>
+              <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
+              <span className="label">Only show ≥ 4 hours</span>
+            </label>
+            <button className="btn" onClick={exportCSV}>Download CSV</button>
           </div>
         )}
       </div>{/* /toolbar */}
 
-      {/* DAILY VIEW (original report) */}
+      {/* DAILY VIEW */}
       {view === 'daily' && (
         <div className="card report-table-card">
           {busy ? (
@@ -355,7 +393,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* APPROVED PICKUPS (names-only CRUD; persists in DB) */}
+      {/* APPROVED PICKUPS */}
       {view === 'approved' && (
         <div className="card report-table-card">
           {busy ? (
@@ -383,7 +421,6 @@ export default function ReportsPage() {
                         .from('students')
                         .select('id, approved_pickups')
                         .eq('id', r.student_id)
-                        .select() // representation
                         .maybeSingle()
                       if (!error && fresh) {
                         const apRaw = (fresh as any).approved_pickups
@@ -404,7 +441,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* STUDENT HISTORY (date range + editable times; persists in DB) */}
+      {/* STUDENT HISTORY */}
       {view === 'history' && (
         <StudentHistoryBlock />
       )}
@@ -421,26 +458,27 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
 
   async function save() {
     const clean = items.map(s => String(s).trim()).filter(s => s.length > 0)
-
-    // Persist in the same format the DB used for this student
     const payload =
       row.__apRawType === 'string'
         ? { approved_pickups: JSON.stringify(clean) }
         : { approved_pickups: clean }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('students')
       .update(payload)
       .eq('id', row.student_id)
-      .select() // IMPORTANT: avoid "single JSON" coercion by not using .single()
-    if (!error) {
-      setEditing(false)
-      await onSaved()
-    } else {
+      .select()
+      .maybeSingle()
+
+    if (error || !data) {
       console.error('[approved_pickups save] error', error)
-      alert(`Save failed: ${String((error as any)?.message || error)}`)
+      alert('Save failed (no row updated). This may be blocked by RLS/permissions.')
+      return
     }
+    setEditing(false)
+    await onSaved()
   }
+
   return (
     <tr>
       <td className="cell-name">{row.student_name}</td>
@@ -550,20 +588,22 @@ function StudentHistoryBlock() {
     try {
       if (action === 'checked') {
         const merged = { ...(currentMeta || {}), pickupTime: local }
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('logs')
           .update({ meta: merged })
           .eq('id', logId)
-          .select()   // avoid "single JSON" coercion
-        if (error) throw error
+          .select()
+          .maybeSingle()
+        if (error || !data) throw new Error('No row updated (RLS/permissions?)')
       } else {
         const iso = estLocalToUtcIso(local)
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('logs')
           .update({ at: iso ?? new Date().toISOString() })
           .eq('id', logId)
-          .select()   // avoid "single JSON" coercion
-        if (error) throw error
+          .select()
+          .maybeSingle()
+        if (error || !data) throw new Error('No row updated (RLS/permissions?)')
       }
       await run()
     } catch (e: any) {
