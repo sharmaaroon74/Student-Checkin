@@ -342,8 +342,15 @@ export default function ReportsPage() {
               <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
               <span className="label">Only show ≥ 4 hours</span>
             </label>
-            <button className="btn" onClick={exportCSV}>Download CSV</button>
-          </div>
+            <button
+              className="btn"
+              style={{padding:'6px 10px'}}
+              title="Download CSV"
+              aria-label="Download CSV"
+              onClick={exportCSV}
+            >
+              ⬇️ CSV
+            </button>          </div>
         )}
       </div>{/* /toolbar */}
 
@@ -463,12 +470,12 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         ? { approved_pickups: JSON.stringify(clean) }
         : { approved_pickups: clean }
 
-    const { data, error } = await supabase
-      .from('students')
-      .update(payload)
-      .eq('id', row.student_id)
-      .select()
-      .maybeSingle()
+    // Persist via RPC (SECURITY DEFINER) to avoid RLS blocks.
+    // We pass a JSONB array; the RPC normalizes to the underlying column type.
+    const { data, error } = await supabase.rpc(
+      'rpc_update_student_approved_pickups',
+      { p_student_id: row.student_id, p_pickups: clean }
+    )
 
     if (error || !data) {
       console.error('[approved_pickups save] error', error)
@@ -587,22 +594,19 @@ function StudentHistoryBlock() {
   async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
     try {
       if (action === 'checked') {
-        const merged = { ...(currentMeta || {}), pickupTime: local }
-        const { data, error } = await supabase
-          .from('logs')
-          .update({ meta: merged })
-          .eq('id', logId)
-          .select()
-          .maybeSingle()
+        // Merge pickupTime into meta via RPC (server-side merge, respects RLS through SECURITY DEFINER)
+        const { data, error } = await supabase.rpc('rpc_set_log_pickup_time', {
+          p_log_id: logId,
+          p_pickup_time: local, // 'YYYY-MM-DDTHH:mm' (EST wall clock string)
+        })
         if (error || !data) throw new Error('No row updated (RLS/permissions?)')
-      } else {
-        const iso = estLocalToUtcIso(local)
-        const { data, error } = await supabase
-          .from('logs')
-          .update({ at: iso ?? new Date().toISOString() })
-          .eq('id', logId)
-          .select()
-          .maybeSingle()
+     } else {
+        // picked/arrived: set the at timestamp (UTC ISO) via RPC
+        const iso = estLocalToUtcIso(local) ?? new Date().toISOString()
+        const { data, error } = await supabase.rpc('rpc_set_log_at', {
+          p_log_id: logId,
+          p_at_iso: iso,
+        })
         if (error || !data) throw new Error('No row updated (RLS/permissions?)')
       }
       await run()
