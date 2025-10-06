@@ -682,7 +682,7 @@ function StudentHistoryBlock() {
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
       </div>
       {rows.length===0 ? <div className="muted">No logs.</div> : (
-        <div className="report-table-scroll history" data-testid="history-table-scroll">
+        <div className="report-table-scroll" style={{padding:'16px 16px 0', ['--report-sticky-top' as any]:'16px'}} data-testid="history-table-scroll">
           <table className="report-table">
             <thead className="report-thead">
               <tr>
