@@ -682,14 +682,14 @@ function StudentHistoryBlock() {
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
       </div>
       {rows.length===0 ? <div className="muted">No logs.</div> : (
-        <div className="report-table-scroll" style={{padding:'12px 16px'}} data-testid="history-table-scroll">
+        <div className="report-table-scroll" style={{padding:'16px 20px'}} data-testid="history-table-scroll">
           <table className="report-table">
             <thead className="report-thead">
               <tr>
-                <th className="col-school" style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Date</th>
-                <th className="col-person" style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Action</th>
-                <th className="col-time"   style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Time</th>
-                <th className="col-person" style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Edit</th>
+                <th className="col-school" style={{paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Date</th>
+                <th className="col-person" style={{paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Action</th>
+                <th className="col-time"   style={{paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Time</th>
+                <th className="col-person" style={{paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Edit</th>
               </tr>
             </thead>
             <tbody className="report-tbody">
