@@ -470,17 +470,26 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         ? { approved_pickups: JSON.stringify(clean) }
         : { approved_pickups: clean }
 
-    // Persist via RPC (SECURITY DEFINER) to avoid RLS blocks.
-    // We pass a JSONB array; the RPC normalizes to the underlying column type.
+    // Persist via RPC (SECURITY DEFINER) when present.
+    // Falls back to a direct UPDATE if RPC is missing (older DB) or blocked.
     const { data, error } = await supabase.rpc(
       'rpc_update_student_approved_pickups',
       { p_student_id: row.student_id, p_pickups: clean }
     )
-
-    if (error || !data) {
-      console.error('[approved_pickups save] error', error)
-      alert('Save failed (no row updated). This may be blocked by RLS/permissions.')
-      return
+    if (error) {
+      console.warn('[approved_pickups save] RPC failed, falling back to direct update', error)
+      // Use the already-normalized payload (stringified if legacy string-column, array otherwise)
+      const { data: upd, error: uerr } = await supabase
+        .from('students')
+        .update(payload)
+        .eq('id', row.student_id)
+        .select('id')
+        .maybeSingle()
+      if (uerr || !upd) {
+        console.error('[approved_pickups save] fallback update failed', uerr)
+        alert('Save failed (no row updated). Database may be missing RPCs or blocked by RLS.')
+        return
+      }
     }
     setEditing(false)
     await onSaved()
@@ -594,20 +603,39 @@ function StudentHistoryBlock() {
   async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
     try {
       if (action === 'checked') {
-        // Merge pickupTime into meta via RPC (server-side merge, respects RLS through SECURITY DEFINER)
+        // Merge pickupTime into meta via RPC (server-side), else fallback to direct UPDATE
         const { data, error } = await supabase.rpc('rpc_set_log_pickup_time', {
           p_log_id: logId,
           p_pickup_time: local, // 'YYYY-MM-DDTHH:mm' (EST wall clock string)
         })
-        if (error || !data) throw new Error('No row updated (RLS/permissions?)')
-     } else {
-        // picked/arrived: set the at timestamp (UTC ISO) via RPC
+        if (error) {
+          console.warn('[history] rpc_set_log_pickup_time failed, falling back to direct update', error)
+          const merged = { ...(currentMeta || {}), pickupTime: local }
+          const { data: upd, error: uerr } = await supabase
+            .from('logs')
+            .update({ meta: merged })
+            .eq('id', logId)
+            .select('id')
+            .maybeSingle()
+          if (uerr || !upd) throw new Error('No row updated (RPC missing/RLS?)')
+        }
+      } else {
+        // picked/arrived: set the at timestamp via RPC, else fallback to direct UPDATE
         const iso = estLocalToUtcIso(local) ?? new Date().toISOString()
         const { data, error } = await supabase.rpc('rpc_set_log_at', {
           p_log_id: logId,
           p_at_iso: iso,
         })
-        if (error || !data) throw new Error('No row updated (RLS/permissions?)')
+        if (error) {
+          console.warn('[history] rpc_set_log_at failed, falling back to direct update', error)
+          const { data: upd, error: uerr } = await supabase
+            .from('logs')
+            .update({ at: iso })
+            .eq('id', logId)
+            .select('id')
+            .maybeSingle()
+          if (uerr || !upd) throw new Error('No row updated (RPC missing/RLS?)')
+        }
       }
       await run()
     } catch (e: any) {
