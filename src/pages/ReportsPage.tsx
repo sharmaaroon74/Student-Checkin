@@ -668,7 +668,7 @@ function StudentHistoryBlock() {
     new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'}).format(new Date(iso))
 
   return (
-    <div className="card report-table-card">
+    <div className="card report-table-card history">
       <div className="row wrap" style={{gap:8, alignItems:'center', marginBottom:8}}>
         <label className="label">Student</label>
         <select value={studentId} onChange={e=>setStudentId(e.target.value)}>
@@ -682,14 +682,14 @@ function StudentHistoryBlock() {
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
       </div>
       {rows.length===0 ? <div className="muted">No logs.</div> : (
-        <div className="report-table-scroll" style={{padding:'16px 16px 0'}} data-testid="history-table-scroll">
+        <div className="report-table-scroll history" data-testid="history-table-scroll">
           <table className="report-table">
             <thead className="report-thead">
               <tr>
-                <th className="col-school" style={{position:'sticky', top:16, paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Date</th>
-                <th className="col-person" style={{position:'sticky', top:16, paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Action</th>
-                <th className="col-time"   style={{position:'sticky', top:16, paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Time</th>
-                <th className="col-person" style={{position:'sticky', top:16, paddingTop:14, paddingBottom:10, paddingLeft:12, paddingRight:12}}>Edit</th>
+                 <th className="col-school">Date</th>
+                <th className="col-person">Action</th>
+                <th className="col-time">Time</th>
+                <th className="col-person">Edit</th>
               </tr>
             </thead>
             <tbody className="report-tbody">

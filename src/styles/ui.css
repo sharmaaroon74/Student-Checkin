@@ -325,6 +325,17 @@ html, body {
   border-bottom: 1px solid var(--b);
 }
 
+/* --- Student History only: add top/side padding + sticky offset --- */
+.report-table-card.history .report-table-scroll {
+  /* horizontal gutters + a real top gutter for the header band */
+  padding: 16px 16px 0;
+}
+.report-table-scroll.history .report-thead th {
+  /* keep sticky header but offset it so it doesn’t hug the top edge */
+  top: 16px;
+  padding-top: 14px; padding-left: 12px; padding-right: 12px; /* match visual spacing */
+}
+
 .report-tbody tr:nth-child(odd) { background: #fff; }
 .report-tbody tr:nth-child(even){ background: #fafbff; }
 
