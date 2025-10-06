@@ -315,7 +315,7 @@ html, body {
 
 .report-thead th {
   position: sticky;
-  top: 0;
+  top: var(--report-sticky-top, 0);
   z-index: 1;
   background: #f2f4f8;            /* subtle header tone */
   color: #374151;
