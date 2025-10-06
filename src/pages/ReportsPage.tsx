@@ -476,7 +476,7 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
       'rpc_update_student_approved_pickups',
       { p_student_id: row.student_id, p_pickups: clean }
     )
-    if (error || !data) {
+    if (error) {
       console.warn('[approved_pickups save] RPC failed, falling back to direct update', error)
       // Use the already-normalized payload (stringified if legacy string-column, array otherwise)
       const { data: upd, error: uerr } = await supabase
@@ -608,7 +608,7 @@ function StudentHistoryBlock() {
           p_log_id: logId,
           p_pickup_time: local, // 'YYYY-MM-DDTHH:mm' (EST wall clock string)
         })
-        if (error || !data) {
+        if (error) {
           console.warn('[history] rpc_set_log_pickup_time failed, falling back to direct update', error)
           const merged = { ...(currentMeta || {}), pickupTime: local }
           const { data: upd, error: uerr } = await supabase
@@ -626,7 +626,7 @@ function StudentHistoryBlock() {
           p_log_id: logId,
           p_at_iso: iso,
         })
-        if (error || !data) {
+        if (error) {
           console.warn('[history] rpc_set_log_at failed, falling back to direct update', error)
           const { data: upd, error: uerr } = await supabase
             .from('logs')
