@@ -554,9 +554,17 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
       ) : (
         <>
           <td className="cell-person">
-            {items.length===0 ? <span className="muted">None</span> :
-              items.map((p,i)=>(<span key={i} className="chip" style={{marginRight:6}}>{p}</span>))
-            }
+            {items.length===0 ? (
+              <span className="muted">None</span>
+            ) : (
+              items.map((p,i)=>(
+                <span key={i} className="chip"
+                  style={{marginRight:6, display:'inline-block', whiteSpace:'nowrap',
+                          overflow:'hidden', textOverflow:'ellipsis', maxWidth:'240px', verticalAlign:'top'}}>
+                  {p}
+                </span>
+              ))
+            )}
           </td>
           <td className="cell-person">
             <button className="btn" onClick={()=>setEditing(true)}>Edit</button>
@@ -674,14 +682,14 @@ function StudentHistoryBlock() {
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
       </div>
       {rows.length===0 ? <div className="muted">No logs.</div> : (
-        <div className="report-table-scroll" style={{padding:'0 16px'}} data-testid="history-table-scroll">
+        <div className="report-table-scroll" style={{padding:'12px 16px'}} data-testid="history-table-scroll">
           <table className="report-table">
             <thead className="report-thead">
               <tr>
-                <th className="col-school" style={{paddingTop:10, paddingBottom:6}}>Date</th>
-                <th className="col-person" style={{paddingTop:10, paddingBottom:6}}>Action</th>
-                <th className="col-time"   style={{paddingTop:10, paddingBottom:6}}>Time</th>
-                <th className="col-person" style={{paddingTop:10, paddingBottom:6}}>Edit</th>
+                <th className="col-school" style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Date</th>
+                <th className="col-person" style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Action</th>
+                <th className="col-time"   style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Time</th>
+                <th className="col-person" style={{paddingTop:14, paddingBottom:10, paddingLeft:8, paddingRight:8}}>Edit</th>
               </tr>
             </thead>
             <tbody className="report-tbody">
