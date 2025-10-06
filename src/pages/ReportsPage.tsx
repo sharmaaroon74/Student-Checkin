@@ -499,60 +499,72 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
     <tr>
       <td className="cell-name">{row.student_name}</td>
       <td className="cell-school">{row.school}</td>
-      <td className="cell-person">
-        {items.length===0 ? <span className="muted">None</span> :
-          items.map((p,i)=>(
-            <span key={i} className="chip" style={{marginRight:6}}>
-              {p}
-            </span>
-          ))
-        }
-      </td>
-      <td className="cell-person">
-        {!editing ? (
-          <button className="btn" onClick={()=>setEditing(true)}>Edit</button>
-        ) : (
-          <div className="col" style={{gap:8}}>
-            <div className="row" style={{gap:6, flexWrap:'wrap'}}>
-              <input
-                placeholder="Add name"
-                value={draft}
-                onChange={e=>setDraft(e.target.value)}
-                onKeyDown={e=>{
-                  if (e.key==='Enter') {
-                    const v = draft.trim()
-                    if (v) setItems(prev => [...prev, v])
-                    setDraft('')
-                  }
-                }}
-              />
-              <button className="btn" onClick={()=>{
-                const v = draft.trim()
-                if (v) setItems(prev => [...prev, v])
-                setDraft('')
-              }}>Add</button>
+
+      {editing ? (
+        <td className="cell-person" colSpan={2} data-testid="ap-editor-spanning-cell">
+          <div className="row"
+               style={{display:'grid', gridTemplateColumns:'1fr 320px', gap:12, alignItems:'start'}}>
+            {/* LEFT: current list with remove buttons */}
+            <div className="col" style={{gap:8}}>
+              <div className="row" style={{gap:6, flexWrap:'wrap'}}>
+                {items.length===0 ? <span className="muted">None</span> :
+                  items.map((p,i)=>(
+                    <span key={i} className="chip">
+                      {p}
+                      <button className="btn" style={{marginLeft:6}} onClick={()=>{
+                        setItems(prev => prev.filter((_,idx)=>idx!==i))
+                      }}>×</button>
+                    </span>
+                  ))
+                }
+              </div>
             </div>
-            <div className="row" style={{gap:6, flexWrap:'wrap'}}>
-              {items.map((p,i)=>(
-                <span key={i} className="chip">
-                  {p}
-                  <button className="btn" style={{marginLeft:6}} onClick={()=>{
-                    setItems(prev => prev.filter((_,idx)=>idx!==i))
-                  }}>×</button>
-                </span>
-              ))}
-            </div>
-            <div className="row" style={{gap:6}}>
-              <button className="btn primary" onClick={save}>Save</button>
-              <button className="btn" onClick={()=>{
-                setEditing(false)
-                setItems(Array.isArray(row.approved_pickups)?[...row.approved_pickups]:[])
-                setDraft('')
-              }}>Cancel</button>
+            {/* RIGHT: add box + actions */}
+            <div className="col" style={{gap:8}}>
+              <div className="row" style={{gap:6, flexWrap:'wrap'}}>
+                <input
+                  placeholder="Add name"
+                  value={draft}
+                  onChange={e=>setDraft(e.target.value)}
+                  onKeyDown={e=>{
+                    if (e.key==='Enter') {
+                      const v = draft.trim()
+                      if (v) setItems(prev => [...prev, v])
+                      setDraft('')
+                    }
+                  }}
+                />
+                <button className="btn" onClick={()=>{
+                  const v = draft.trim()
+                  if (v) setItems(prev => [...prev, v])
+                  setDraft('')
+                }}>Add</button>
+              </div>
+              <div className="row" style={{gap:6, marginTop:6}}>
+                <button className="btn primary" onClick={save}>Save</button>
+                <button className="btn" onClick={()=>{
+                  setEditing(false)
+                  setItems(Array.isArray(row.approved_pickups)?[...row.approved_pickups]:[])
+                  setDraft('')
+                }}>Cancel</button>
+              </div>
             </div>
           </div>
-        )}
-      </td>
+        </td>
+      ) : (
+        <>
+          <td className="cell-person">
+            {items.length===0 ? <span className="muted">None</span> :
+              items.map((p,i)=>(<span key={i} className="chip" style={{marginRight:6}}>{p}</span>))
+            }
+          </td>
+          <td className="cell-person">
+            <button className="btn" onClick={()=>setEditing(true)}>Edit</button>
+          </td>
+        </>
+      )}
+
+
     </tr>
   )
 }
@@ -662,14 +674,14 @@ function StudentHistoryBlock() {
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
       </div>
       {rows.length===0 ? <div className="muted">No logs.</div> : (
-        <div className="report-table-scroll">
+        <div className="report-table-scroll" style={{padding:'0 16px'}} data-testid="history-table-scroll">
           <table className="report-table">
             <thead className="report-thead">
               <tr>
-                <th className="col-school">Date</th>
-                <th className="col-person">Action</th>
-                <th className="col-time">Time</th>
-                <th className="col-person">Edit</th>
+                <th className="col-school" style={{paddingTop:10, paddingBottom:6}}>Date</th>
+                <th className="col-person" style={{paddingTop:10, paddingBottom:6}}>Action</th>
+                <th className="col-time"   style={{paddingTop:10, paddingBottom:6}}>Time</th>
+                <th className="col-person" style={{paddingTop:10, paddingBottom:6}}>Edit</th>
               </tr>
             </thead>
             <tbody className="report-tbody">
