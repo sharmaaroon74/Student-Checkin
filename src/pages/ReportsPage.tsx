@@ -60,6 +60,19 @@ export default function ReportsPage() {
   // DAILY tab state
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
+
+  // Display name in table according to current sort toggle
+  function fmtStudentName(full: string): string {
+    if (sortBy === 'first') return full
+    // For last-name display: "Last, First [Middles]" while being robust to parentheses
+    const noParen = full.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim()
+    const parts = noParen.split(' ')
+    if (parts.length < 2) return full
+    const last = parts[parts.length - 1]
+    const first = parts.slice(0, -1).join(' ')
+    return `${last}, ${first}`
+  }
+
   const [school, setSchool] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
   const [hideNoActivity, setHideNoActivity] = useState(true)
   const [hideSkipped, setHideSkipped] = useState(true)
@@ -379,7 +392,7 @@ export default function ReportsPage() {
                 <tbody className="report-tbody">
                   {filteredSorted.map((r) => (
                     <tr key={r.student_id}>
-                      <td className="cell-name">{r.student_name}</td>
+                      <td className="cell-name">{fmtStudentName(r.student_name)}</td>
                       <td className="cell-school">{r.school}</td>
                       <td className="cell-time">{fmtCell(r.picked_time)}</td>
                       <td className="cell-time">{fmtCell(r.arrived_time)}</td>
