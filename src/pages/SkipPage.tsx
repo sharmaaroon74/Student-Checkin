@@ -24,7 +24,9 @@ export default function SkipPage({ students, roster, onSet }: Props) {
     useState<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
-
+  // Display name according to current sort toggle
+  const nameFor = (s: StudentRow) =>
+    sortBy === 'first' ? `${s.first_name} ${s.last_name}` : `${s.last_name}, ${s.first_name}`
   // ---------- BASE FILTER (used for GLOBAL COUNTS on every page) ----------
   const base = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -112,7 +114,7 @@ export default function SkipPage({ students, roster, onSet }: Props) {
               <div key={s.id} className="card-row sd-row">
                 <div>
                   <div className="heading">
-                    {s.first_name} {s.last_name}
+                    {nameFor(s)}
                   </div>
                   <div className="sub">School: {s.school} | Not Picked</div>
                 </div>
@@ -142,7 +144,7 @@ export default function SkipPage({ students, roster, onSet }: Props) {
               <div key={s.id} className="card-row sd-row">
                 <div>
                   <div className="heading">
-                    {s.first_name} {s.last_name}
+                    {nameFor(s)}
                   </div>
                   <div className="sub">School: {s.school} | Skipped</div>
                 </div>
