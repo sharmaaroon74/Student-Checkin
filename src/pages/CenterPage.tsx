@@ -51,7 +51,9 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
   const [schoolSel, setSchoolSel] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
-
+  // Display name according to current sort toggle
+  const nameFor = (s: StudentRow) =>
+    sortBy === 'first' ? `${s.first_name} ${s.last_name}` : `${s.last_name}, ${s.first_name}`
   // --- Checkout modal state ---
   const [modalOpen, setModalOpen] = useState(false)
   const [modalStudent, setModalStudent] = useState<StudentRow | null>(null)
@@ -178,7 +180,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
               {checkinFromBus.map(s => (
                 <div key={s.id} className="card-row sd-row">
                   <div>
-                    <div className="heading">{s.first_name} {s.last_name}</div>
+                    <div className="heading">{nameFor(s)}</div>
                     <div className="sub">{statusLine(s)}</div>
                   </div>
                   <div className="sd-card-actions">
@@ -202,7 +204,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
               {directCheckin.map(s => (
                 <div key={s.id} className="card-row sd-row">
                   <div>
-                    <div className="heading">{s.first_name} {s.last_name}</div>
+                    <div className="heading">{nameFor(s)}</div>
                     <div className="sub">{statusLine(s)}</div>
                   </div>
                   <div className="sd-card-actions">
@@ -227,7 +229,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
               {arrived.map(s => (
                 <div key={s.id} className="card-row sd-row">
                   <div>
-                    <div className="heading">{s.first_name} {s.last_name}</div>
+                    <div className="heading">{nameFor(s)}</div>
                     <div className="sub">{statusLine(s)}</div>
                   </div>
                   <div className="sd-card-actions">
@@ -251,7 +253,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
               {checked.map(s => (
                 <div key={s.id} className="card-row sd-row">
                   <div>
-                    <div className="heading">{s.first_name} {s.last_name}</div>
+                    <div className="heading">{nameFor(s)}</div>
                     <div className="sub">{statusLine(s)}</div>
                   </div>
                   <div className="sd-card-actions">
@@ -271,7 +273,9 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
         <div className="modal" role="dialog" aria-modal="true" aria-label="Verify Pickup">
           <div className="modal-card">
             <div className="modal-head">
-              <div className="heading">Checkout — {modalStudent.first_name} {modalStudent.last_name}</div>
+              <div className="heading">
+                Checkout — {sortBy === 'first' ? `${modalStudent.first_name} ${modalStudent.last_name}` : `${modalStudent.last_name}, ${modalStudent.first_name}`}
+              </div>
               <button className="btn" onClick={closeModal}>✕</button>
             </div>
 
