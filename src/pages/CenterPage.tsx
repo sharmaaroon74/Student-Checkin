@@ -173,7 +173,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
       {tab === 'in' && (
         <div className="two-col" style={{ marginTop: 12 }}>
           {/* Left: from Bus */}
-          <div className="card">
+          {false && (<div className="card">
             <h3 className="section-title">Center Check-in (from Bus)</h3>
             <div className="list">
               {checkinFromBus.length === 0 && <div className="muted">No students to check in from bus.</div>}

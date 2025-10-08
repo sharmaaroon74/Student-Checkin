@@ -122,6 +122,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
                     className="btn primary"
                     onClick={() => {
                       onSet(s.id, 'picked')
+                      onSet(s.id, 'arrived', { autoArrive: true, source: 'bus' })
                       clearSearch()
                     }}
                   >
