@@ -72,7 +72,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
     return c
   }, [base, roster])
 
-  // ---------- PAGE SECTIONS (unchanged behavior) ----------
+  // ---------- PAGE SECTIONS (unchanged behavior) -- --------
   const busPickup = useMemo(() => {
     return base.filter((s) => {
       const st = (roster[s.id] ?? 'not_picked') as Status
@@ -122,6 +122,7 @@ export default function BusPage({ students, roster, onSet }: Props) {
                     className="btn primary"
                     onClick={() => {
                       onSet(s.id, 'picked')
+                      onSet(s.id, 'arrived', { autoArrive: true, source: 'bus' })
                       clearSearch()
                     }}
                   >
