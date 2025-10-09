@@ -7,6 +7,7 @@ type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
   onSet: (id: string, st: Status, meta?: any) => void
+   pickedTodayIds?: string[]
 }
 
 // Shared constants used for the Bus-eligible panel
@@ -20,7 +21,7 @@ const BUS_ELIGIBLE_YEARS = [
   'PT3 - A - TWF',
 ]
 
-export default function BusPage({ students, roster, onSet }: Props) {
+export default function BusPage({ students, roster, onSet, pickedTodayIds }: Props) {
   const [schoolSel, setSchoolSel] =
     useState<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'>('All')
   const [q, setQ] = useState('')
@@ -69,8 +70,16 @@ export default function BusPage({ students, roster, onSet }: Props) {
         c[st]++
       }
     }
-    return c
-  }, [base, roster])
+    // Override Picked counter: count bus-eligible students picked at least once today
+    const pickedSet = new Set(pickedTodayIds ?? [])
+    const pickedCount = base.filter(s => {
+      if (!pickedSet.has(s.id)) return false
+      const yr = (s.school_year ?? '').trim()
+      return s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)
+    }).length
+    c.picked = pickedCount
+     return c
+  }, [base, roster, pickedTodayIds])
 
   // ---------- PAGE SECTIONS (unchanged behavior) ----------
   const busPickup = useMemo(() => {

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import type { Status, StudentRow } from '../types'
 import TopToolbar from '../components/TopToolbar'
+type Extra = { pickedTodayIds?: string[] }
 
 // Bus-eligible gates for TO PICK total (exclude B/H)
 const ALLOWED_SCHOOLS = ['Bain', 'QG', 'MHE', 'MC']
@@ -46,7 +47,7 @@ function nowLocalESTForInput() {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
 }
 
-export default function CenterPage({ students, roster, rosterTimes, onSet }: Props) {
+export default function CenterPage({ students, roster, rosterTimes, onSet, pickedTodayIds }: Props & Extra) {
   const [tab, setTab] = useState<Tab>('out')
   const [schoolSel, setSchoolSel] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
   const [q, setQ] = useState('')
@@ -103,14 +104,21 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
       const yr = (s.school_year ?? '').trim()
       return s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)
     }).length
+    // Picked today: intersect filtered students with today's picked ids (bus-eligible only)
+    const pickedSet = new Set(pickedTodayIds ?? [])
+    const pickedCount = filtered.filter(s => {
+      if (!pickedSet.has(s.id)) return false
+      const yr = (s.school_year ?? '').trim()
+      return s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)
+    }).length
     return {
       not_picked: notPickedCount,
-      picked: picked.length,
+      picked: pickedCount,
       arrived: arrived.length,
       checked: checked.length,
       skipped: skipped.length,
     }
-  }, [filtered, roster, picked.length, arrived.length, checked.length, skipped.length])
+  }, [filtered, roster, pickedTodayIds, arrived, checked, skipped])
 
   // --- Modal handlers ---
   function openCheckoutModal(s: StudentRow) {
