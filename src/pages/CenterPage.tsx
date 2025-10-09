@@ -47,7 +47,7 @@ function nowLocalESTForInput() {
 }
 
 export default function CenterPage({ students, roster, rosterTimes, onSet }: Props) {
-  const [tab, setTab] = useState<Tab>('in')
+  const [tab, setTab] = useState<Tab>('out')
   const [schoolSel, setSchoolSel] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
@@ -166,8 +166,8 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
 
       {/* tab pills */}
       <div className="row gap toolbar-bg" style={{ marginTop: 8 }}>
-        <button className={`btn ${tab==='in'?'primary':''}`} onClick={()=>setTab('in')}>Check-in</button>
         <button className={`btn ${tab==='out'?'primary':''}`} onClick={()=>setTab('out')}>Checkout</button>
+        <button className={`btn ${tab==='in'?'primary':''}`} onClick={()=>setTab('in')}>Check-in</button>
       </div>
 
       {tab === 'in' && (
@@ -236,7 +236,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
                     <button className="btn primary" onClick={() => { openCheckoutModal(s) }}>
                       Checkout
                     </button>
-                    <button className="btn" onClick={() => { onSet(s.id, 'picked'); clearSearch() }}>
+                    <button className="btn" onClick={() => { onSet(s.id, 'not_picked'); clearSearch() }}>
                       Undo
                     </button>
                   </div>
