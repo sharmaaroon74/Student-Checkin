@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from './lib/supabase'
 import type { Status, StudentRow } from './types'
 import BusPage from './pages/BusPage'
@@ -8,7 +8,6 @@ import ReportsPage from './pages/ReportsPage'
 import Login from './Login'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 import logo from './assets/sunnydays-logo.png'  
-
 
 type Page = 'bus' | 'center' | 'skip' | 'reports'
 type Role = 'admin' | 'staff' | 'driver'
@@ -29,47 +28,50 @@ function todayKeyEST(): string {
   }).format(now)
 }
 
-/* === ADDED START: helper to convert 'YYYY-MM-DDTHH:mm' (EST wall time) to UTC ISO === */
+/* === helper: convert 'YYYY-MM-DDTHH:mm' (EST wall time) → UTC ISO (DST-safe) === */
+function estLocalToUtcIso(local: string): string | null {
+  const [date, time] = local.split('T')
+  if (!date || !time) return null
+  const [y, mo, d] = date.split('-').map(Number)
+  const [hh, mm] = time.split(':').map(Number)
+  const desiredLocalMs = Date.UTC(y, mo - 1, d, hh, mm, 0, 0)
+  let utcMs = desiredLocalMs
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  })
+  for (let i = 0; i < 3; i++) {
+    const parts = dtf.formatToParts(new Date(utcMs))
+    const nyY   = Number(parts.find(p => p.type === 'year')?.value)
+    const nyMo  = Number(parts.find(p => p.type === 'month')?.value)
+    const nyD   = Number(parts.find(p => p.type === 'day')?.value)
+    const nyH   = Number(parts.find(p => p.type === 'hour')?.value)
+    const nyMin = Number(parts.find(p => p.type === 'minute')?.value)
+    const renderedLocalMs = Date.UTC(nyY, nyMo - 1, nyD, nyH, nyMin, 0, 0)
+    const diff = desiredLocalMs - renderedLocalMs
+    if (diff === 0) break
+    utcMs += diff
+  }
+  return new Date(utcMs).toISOString()
+}
 
- function estLocalToUtcIso(local: string): string | null {
-   // Interpret 'YYYY-MM-DDTHH:mm' as America/New_York wall time (handles DST correctly)
-   const [date, time] = local.split('T')
-   if (!date || !time) return null
-   const [y, mo, d] = date.split('-').map(Number)
-   const [hh, mm] = time.split(':').map(Number)
-   // desired local civil time as a millisecond value (in UTC scale)
-   const desiredLocalMs = Date.UTC(y, mo - 1, d, hh, mm, 0, 0)
-   let utcMs = desiredLocalMs // initial guess
-   const dtf = new Intl.DateTimeFormat('en-US', {
-     timeZone: 'America/New_York',
-     hour12: false,
-     year: 'numeric', month: '2-digit', day: '2-digit',
-     hour: '2-digit', minute: '2-digit'
-   })
-   // Iterate to solve utcMs such that NY time equals desiredLocalMs fields
-   for (let i = 0; i < 3; i++) {
-     const parts = dtf.formatToParts(new Date(utcMs))
-     const nyY   = Number(parts.find(p => p.type === 'year')?.value)
-     const nyMo  = Number(parts.find(p => p.type === 'month')?.value)
-     const nyD   = Number(parts.find(p => p.type === 'day')?.value)
-     const nyH   = Number(parts.find(p => p.type === 'hour')?.value)
-     const nyMin = Number(parts.find(p => p.type === 'minute')?.value)
-     const renderedLocalMs = Date.UTC(nyY, nyMo - 1, nyD, nyH, nyMin, 0, 0)
-     const diff = desiredLocalMs - renderedLocalMs
-     if (diff === 0) break
-     utcMs += diff
-   }
-   return new Date(utcMs).toISOString()
- }
-
-/* === ADDED END === */
-
+/* === label helper === */
 function todayESTLabel(): string {
   const now = new Date()
   return new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     weekday: 'short', month: 'short', day: '2-digit', year: 'numeric'
   }).format(now)
+}
+
+/* === Safe localStorage helpers (never throw) === */
+function lsGet(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+function lsSet(key: string, val: string) {
+  try { localStorage.setItem(key, val) } catch { /* ignore */ }
 }
 
 export default function App() {
@@ -89,8 +91,14 @@ export default function App() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const { data, error } = await supabase.from('logs').select('student_id').eq('roster_date', rosterDateEST).eq('action', 'picked')
-      if (!cancelled && !error && data) setPickedTodayMap(Object.fromEntries(data.map((r:any)=>[r.student_id, true])))
+      const { data, error } = await supabase
+        .from('logs')
+        .select('student_id')
+        .eq('roster_date', rosterDateEST)
+        .eq('action', 'picked')
+      if (!cancelled && !error && data) {
+        setPickedTodayMap(Object.fromEntries(data.map((r:any)=>[r.student_id, true])))
+      }
     })()
     return () => { cancelled = true }
   }, [rosterDateEST])
@@ -104,7 +112,7 @@ export default function App() {
     ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { if (!cancelled) { setRole(null); setRoleLoading(false) } ; return }
-            const { data, error } = await supabase
+      const { data, error } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', user.id)
@@ -134,7 +142,7 @@ export default function App() {
   // Realtime + light polling fallback
   useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
 
-  // Auth (email/password)
+  // Auth / session bootstrap + once-per-day auto-skip guard
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -143,12 +151,13 @@ export default function App() {
       setIsAuthed(!!data.session)
       setSessionReady(true)
     })()
+
     const runAutoSkipGuard = async () => {
       const todayEST = todayKeyEST()
       const lsKey = `sd_autoskip_${todayEST}`
-      if (localStorage.getItem(lsKey)) return
+      if (lsGet(lsKey)) return
       try {
-        // Head-count guard: use count from Supabase (data will be null with head:true)
+        // COUNT-only guard (data is null with head:true)
         const { count, error: rsErr } = await supabase
           .from('roster_status')
           .select('*', { count: 'exact', head: true })
@@ -162,9 +171,8 @@ export default function App() {
             return
           }
         }
-        // stamp once per day (only after success or when already prepared)
-        localStorage.setItem(lsKey, '1')
-        // refresh data so UI shows new rows
+        // Mark done and refresh data for the UI
+        lsSet(lsKey, '1')
         await fetchStudents()
         await refetchTodayRoster()
       } catch (e) {
@@ -172,33 +180,19 @@ export default function App() {
       }
     }
 
-      // Fallback: if for any reason auth callback timing differed, run guard once when session is ready & authed
-  const autoSkipOnceRef = useRef(false)
-  useEffect(() => {
-    (async () => {
-      if (!sessionReady || !isAuthed) return
-      if (autoSkipOnceRef.current) return
-      autoSkipOnceRef.current = true
-      // same guard as auth handler
-      const todayEST = todayKeyEST()
-      const lsKey = `sd_autoskip_${todayEST}`
-      if (!localStorage.getItem(lsKey)) {
-        const { count } = await supabase.from('roster_status').select('*', { count:'exact', head:true }).eq('roster_date', todayEST)
-        if ((count ?? 0) === 0) await supabase.rpc('api_prepare_today_and_apply_auto_skip')
-        localStorage.setItem(lsKey, '1'); await fetchStudents(); await refetchTodayRoster()
-      }
-    })()
-  }, [sessionReady, isAuthed, rosterDateEST])
-
-    const { data: sub } = supabase.auth.onAuthStateChange(async (evt, sess) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (evt, sess) => {
       setIsAuthed(!!sess)
       setSessionReady(true)
-      // Run on *both* initial session (persisted login) and real sign-in
+      // Handle both persisted session and fresh sign-in
       if ((evt === 'INITIAL_SESSION' || evt === 'SIGNED_IN') && sess?.user) {
         await runAutoSkipGuard()
       }
     })
-    return () => { sub.subscription.unsubscribe() }
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -223,9 +217,9 @@ export default function App() {
     setStudents(data as StudentRow[])
   }
 
-  /* === CHANGED START: refetchTodayRoster now prefers meta.pickupTime for 'checked' logs === */
+  /* === refetchTodayRoster prefers meta.pickupTime for 'checked' logs (if present) === */
   async function refetchTodayRoster() {
-    // 1) fetch current roster rows for today
+    // 1) fetch current roster for today
     const { data, error } = await supabase
       .from('roster_status')
       .select('student_id, current_status, last_update')
@@ -247,21 +241,21 @@ export default function App() {
       next[id] = st
       statusFor[id] = st
       lastUpdateFor[id] = (r.last_update as string) ?? null
-      // only these statuses show a time in the UI
       if (st === 'picked' || st === 'arrived' || st === 'checked') {
         idsNeedingEarliest.push(id)
       }
     }
 
-    // 2) build times using the EARLIEST effective time per (student, current_status) for today
+    // 2) earliest effective time per (student, current_status) for today
     const times: Record<string, string> = {}
-    if (idsNeedingEarliest.length > 0) {
-    const { data: logRows, error: logErr } = await supabase
-      .from('logs')
-      .select('student_id, action, at, meta')
+    const ids = idsNeedingEarliest
+    if (ids.length > 0) {
+      const { data: logRows, error: logErr } = await supabase
+        .from('logs')
+        .select('student_id, action, at, meta')
         .eq('roster_date', rosterDateEST)
         .in('action', ['picked','arrived','checked'])
-        .in('student_id', idsNeedingEarliest)
+        .in('student_id', ids)
 
       if (logErr) {
         console.warn('[logs earliest fetch] non-fatal:', logErr)
@@ -270,13 +264,11 @@ export default function App() {
         for (const row of logRows) {
           const sid = row.student_id as string
           const act = row.action as Status
-
           const rawAt = row.at as string
           const meta = (row as any).meta || {}
-           // Prefer modal time; convert EST local → UTC ISO so Center renders EST correctly.
-           const effectiveAt =
-             (act === 'checked' && meta && meta.pickupTime)
-               ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
+          const effectiveAt =
+            (act === 'checked' && meta && meta.pickupTime)
+              ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
               : rawAt
 
           earliest[sid] ??= {}
@@ -285,28 +277,20 @@ export default function App() {
             earliest[sid][act] = effectiveAt
           }
         }
-        // set time only for the student's current status
-        for (const sid of idsNeedingEarliest) {
+        for (const sid of ids) {
           const st = statusFor[sid]
           let t = earliest[sid]?.[st]
-          // If currently 'checked' and there was no meta override/log captured,
-          // fall back to roster_status.last_update so UI shows the latest checkout time for the day.
-          if (!t && st === 'checked' && lastUpdateFor[sid]) {
-            t = lastUpdateFor[sid] as string
-          }
+          if (!t && st === 'checked' && lastUpdateFor[sid]) t = lastUpdateFor[sid] as string
           if (t) times[sid] = t
         }
       }
     }
 
-    // 3) commit state
     setRoster(next)
     setRosterTimes(times)
   }
-  /* === CHANGED END === */
 
   async function handleSetStatus(studentId: string, st: Status, meta?: any) {
-    // helper: status order to detect Undo (moving "backwards" in the flow)
     const ORDER: Record<Status, number> = {
       not_picked: 0, picked: 1, arrived: 2, checked: 3, skipped: 4,
     }
@@ -314,9 +298,8 @@ export default function App() {
     const prevStatus = (roster[studentId] ?? 'not_picked') as Status
     const prevTime   = rosterTimes[studentId] || null
 
-    // normalize override person (unchanged)
     if (meta && !meta.pickupPerson && meta.override) {
-      meta.pickupPerson = meta.override;
+      meta.pickupPerson = meta.override
     }
 
     const isUndo     = ORDER[st] < ORDER[prevStatus]
@@ -326,11 +309,11 @@ export default function App() {
       prev_time: prevTime,
     }
 
-       // Convert modal datetime-local (EST) to UTC ISO for consistent UI rendering.
-   const atOverrideLocal: string | null =
-     (st === 'checked' && enrichedMeta?.pickupTime)
-       ? (estLocalToUtcIso(String(enrichedMeta.pickupTime)) ?? String(enrichedMeta.pickupTime))
-       : null
+    // Convert modal datetime-local (EST) to UTC ISO for consistent UI rendering.
+    const atOverrideLocal: string | null =
+      (st === 'checked' && enrichedMeta?.pickupTime)
+        ? (estLocalToUtcIso(String(enrichedMeta.pickupTime)) ?? String(enrichedMeta.pickupTime))
+        : null
 
     const { error: rpcErr } = await supabase.rpc('api_set_status', {
       p_student_id: studentId,
@@ -355,12 +338,10 @@ export default function App() {
         console.error('[roster_status upsert] error', upsertErr)
         return
       }
-      // best-effort log
       const stu = students.find(s => s.id === studentId)
       const student_name = stu ? `${stu.first_name} ${stu.last_name}` : null
-           const { error: logErr } = await supabase.from('logs').insert({
+      const { error: logErr } = await supabase.from('logs').insert({
         at: new Date().toISOString(),
-
         roster_date: rosterDateEST,
         student_id: studentId,
         student_name,
@@ -372,20 +353,15 @@ export default function App() {
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
 
-  // Keep the "picked today" tally consistent with user actions:
-  // - increment ONLY when explicitly marking picked
-  // - remove ONLY when explicitly moving to ToPicked (not_picked)
-  setPickedTodayMap(prev => {
-    const m = { ...prev }
-    if (st === 'picked') {
-      m[studentId] = true
-    } else if (st === 'not_picked') {
-      delete m[studentId]
-    }
-    return m
-  })
+    // picked-tally: increment ONLY on picked; remove ONLY on not_picked (Undo to ToPicked)
+    setPickedTodayMap(prev => {
+      const m = { ...prev }
+      if (st === 'picked') m[studentId] = true
+      else if (st === 'not_picked') delete m[studentId]
+      return m
+    })
 
-    // Undo → restore original earliest time for that status; else prefer override/now
+    // UI times: if Undo, restore earliest for that status; else prefer override/now
     let restoredAtIso: string | null = null
     if (isUndo) {
       const { data: tsRow, error: tsErr } = await supabase
@@ -397,16 +373,11 @@ export default function App() {
         .order('at', { ascending: true })
         .limit(1)
         .maybeSingle()
-      if (!tsErr && tsRow?.at) {
-        restoredAtIso = tsRow.at as string
-      } else {
-        restoredAtIso = new Date().toISOString()
-      }
+      if (!tsErr && tsRow?.at) restoredAtIso = tsRow.at as string
+      else restoredAtIso = new Date().toISOString()
     }
     setRosterTimes(prev => ({
       ...prev,
-      // If undo: use restoredAtIso (earliest real log).
-      // Else: prefer the modal's local (EST) time string for immediate UI; fallback to now.
       [studentId]: restoredAtIso ?? (atOverrideLocal ?? new Date().toISOString()),
     }))
   }
@@ -469,7 +440,12 @@ export default function App() {
 
       {/* Render pages */}
       {page === 'bus' && (
-        <BusPage students={students} roster={roster} onSet={handleSetStatus} pickedTodayIds={Object.keys(pickedTodayMap)} />
+        <BusPage
+          students={students}
+          roster={roster}
+          onSet={handleSetStatus}
+          pickedTodayIds={Object.keys(pickedTodayMap)}
+        />
       )}
 
       {page === 'center' && (
@@ -483,14 +459,15 @@ export default function App() {
       )}
 
       {page === 'skip' && (
-        <SkipPage students={students} roster={roster} onSet={handleSetStatus} pickedTodayIds={Object.keys(pickedTodayMap)} />
+        <SkipPage
+          students={students}
+          roster={roster}
+          onSet={handleSetStatus}
+          pickedTodayIds={Object.keys(pickedTodayMap)}
+        />
       )}
 
       {page === 'reports' && <ReportsPage />}
-
-      {page === 'skip' && (
-        <SkipPage students={students} roster={roster} onSet={handleSetStatus} />
-      )}
     </div>
   )
 }
