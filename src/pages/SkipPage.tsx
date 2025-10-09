@@ -6,6 +6,7 @@ type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
   onSet: (id: string, st: Status, meta?: any) => void
+  pickedTodayIds?: string[]
 }
 
 // Mark-skip eligibility rules (per your spec)
@@ -19,8 +20,8 @@ const BUS_ELIGIBLE_YEARS = [
   'PT3 - A - TWF',
 ]
 
-export default function SkipPage({ students, roster, onSet }: Props) {
-  const [schoolSel, setSchoolSel] =
+export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Props) {
+    const [schoolSel, setSchoolSel] =
     useState<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
@@ -66,8 +67,16 @@ export default function SkipPage({ students, roster, onSet }: Props) {
         c[st]++
       }
     }
-    return c
-  }, [base, roster])
+    // Override Picked counter from daily tally intersected with base + bus-eligible
+    const pickedSet = new Set(pickedTodayIds ?? [])
+    const pickedCount = base.filter(s => {
+      if (!pickedSet.has(s.id)) return false
+      const yr = (s.school_year ?? '').trim()
+      return s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)
+    }).length
+    c.picked = pickedCount
+     return c
+  }, [base, roster, pickedTodayIds])
 
   // ---------- PAGE SECTIONS ----------
   // Mark Skip Today: active day-program students not already skipped

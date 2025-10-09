@@ -83,6 +83,18 @@ export default function App() {
 
   const rosterDateEST = todayKeyEST()
 
+  // Track "picked today" independently of current status.
+  // Seed from logs for today, then keep it in sync via handleSetStatus.
+  const [pickedTodayMap, setPickedTodayMap] = useState<Record<string, true>>({})
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data, error } = await supabase.from('logs').select('student_id').eq('roster_date', rosterDateEST).eq('action', 'picked')
+      if (!cancelled && !error && data) setPickedTodayMap(Object.fromEntries(data.map((r:any)=>[r.student_id, true])))
+    })()
+    return () => { cancelled = true }
+  }, [rosterDateEST])
+
   const [role, setRole] = useState<Role | null>(null)
   const [roleLoading, setRoleLoading] = useState(true)
 
@@ -309,6 +321,15 @@ export default function App() {
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
 
+   // Keep the "picked today" tally consistent with user actions:
+   // - increment when marking picked
+  // - remove only when moving back to ToPicked (not_picked)
+  if (st === 'picked') {
+    setPickedTodayMap(prev => ({ ...prev, [studentId]: true }))
+  } else if (st === 'not_picked') {
+    setPickedTodayMap(prev => { const m = { ...prev }; delete m[studentId]; return m })
+  }
+
     // Undo → restore original earliest time for that status; else prefer override/now
     let restoredAtIso: string | null = null
     if (isUndo) {
@@ -400,7 +421,7 @@ export default function App() {
 
       {/* Render pages */}
       {page === 'bus' && (
-        <BusPage students={students} roster={roster} onSet={handleSetStatus} />
+        <BusPage students={students} roster={roster} onSet={handleSetStatus} pickedTodayIds={Object.keys(pickedTodayMap)} />
       )}
 
       {page === 'center' && (
@@ -409,11 +430,12 @@ export default function App() {
           roster={roster}
           rosterTimes={rosterTimes}
           onSet={handleSetStatus}
+          pickedTodayIds={Object.keys(pickedTodayMap)}
         />
       )}
 
       {page === 'skip' && (
-        <SkipPage students={students} roster={roster} onSet={handleSetStatus} />
+        <SkipPage students={students} roster={roster} onSet={handleSetStatus} pickedTodayIds={Object.keys(pickedTodayMap)} />
       )}
 
       {page === 'reports' && <ReportsPage />}
