@@ -143,9 +143,23 @@ export default function App() {
       setIsAuthed(!!data.session)
       setSessionReady(true)
     })()
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (evt, sess) => {
       setIsAuthed(!!sess)
       setSessionReady(true)
+      // Only run auto-skip when a real sign-in happens, not on refresh.
+      if (evt === 'SIGNED_IN' && sess?.user) {
+        const key = `sd_autoskip_${rosterDateEST}`
+        if (!localStorage.getItem(key)) {
+          try {
+            const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
+            if (error) console.warn('[prepare_today] RPC error (non-fatal):', error)
+          } catch (e) {
+            console.warn('[prepare_today] unexpected error (non-fatal):', e)
+          } finally {
+            localStorage.setItem(key, '1')
+          }
+        }
+      }
     })
     return () => { sub.subscription.unsubscribe() }
   }, [])
@@ -321,14 +335,18 @@ export default function App() {
 
     setRoster(prev => ({ ...prev, [studentId]: st }))
 
-   // Keep the "picked today" tally consistent with user actions:
-   // - increment when marking picked
-  // - remove only when moving back to ToPicked (not_picked)
-  if (st === 'picked') {
-    setPickedTodayMap(prev => ({ ...prev, [studentId]: true }))
-  } else if (st === 'not_picked') {
-    setPickedTodayMap(prev => { const m = { ...prev }; delete m[studentId]; return m })
-  }
+  // Keep the "picked today" tally consistent with user actions:
+  // - increment ONLY when explicitly marking picked
+  // - remove ONLY when explicitly moving to ToPicked (not_picked)
+  setPickedTodayMap(prev => {
+    const m = { ...prev }
+    if (st === 'picked') {
+      m[studentId] = true
+    } else if (st === 'not_picked') {
+      delete m[studentId]
+    }
+    return m
+  })
 
     // Undo → restore original earliest time for that status; else prefer override/now
     let restoredAtIso: string | null = null
@@ -375,13 +393,6 @@ export default function App() {
     return (
       <Login onDone={async () => {
         setIsAuthed(true)
-        // Prepare rows & auto-skip on server (EST-aware), then fetch fresh roster
-        try {
-          const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
-          if (error) console.warn('[prepare_today] RPC error (non-fatal):', error)
-        } catch (e) {
-          console.warn('[prepare_today] unexpected error (non-fatal):', e)
-        }
         await fetchStudents()
         await refetchTodayRoster()
       }} />
