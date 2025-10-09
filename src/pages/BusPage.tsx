@@ -6,7 +6,7 @@ import TopToolbar from '../components/TopToolbar'
 type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
-  onSet: (id: string, st: Status, meta?: any) => void
+  onSet: (id: string, st: Status, meta?: any) => Promise<void> | void
    pickedTodayIds?: string[]
 }
 
@@ -129,9 +129,9 @@ export default function BusPage({ students, roster, onSet, pickedTodayIds }: Pro
                 <div className="sd-card-actions">
                   <button
                     className="btn primary"
-                    onClick={() => {
-                      onSet(s.id, 'picked')
-                      onSet(s.id, 'arrived', { autoArrive: true, source: 'bus' })
+                    onClick={async () => {
+                      await onSet(s.id, 'picked')
+                      await onSet(s.id, 'arrived', { autoArrive: true, source: 'bus' })
                       clearSearch()
                     }}
                   >
