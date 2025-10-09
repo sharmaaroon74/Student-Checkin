@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import type { Status, StudentRow } from './types'
 import BusPage from './pages/BusPage'
@@ -66,6 +66,7 @@ function todayESTLabel(): string {
   }).format(now)
 }
 
+
 /* === Safe localStorage helpers (never throw) === */
 function lsGet(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
@@ -84,6 +85,44 @@ export default function App() {
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
 
   const rosterDateEST = todayKeyEST()
+
+
+  // Hoisted: run-once-per-day auto-skip guard (DB count + localStorage)
+  const autoSkipRanRef = useRef(false)
+  const runAutoSkipGuard = useMemo(() => {
+    return async () => {
+      if (autoSkipRanRef.current) return
+      const todayEST = todayKeyEST()
+      const lsKey = `sd_autoskip_${todayEST}`
+      if (lsGet(lsKey)) { autoSkipRanRef.current = true; return }
+      try {
+        // Count-only guard (data=null with head:true)
+        const { count, error: rsErr } = await supabase
+          .from('roster_status')
+          .select('*', { count: 'exact', head: true })
+          .eq('roster_date', todayEST)
+        if (rsErr) console.warn('[autoskip guard] roster_status count error:', rsErr)
+        const alreadyPrepared = (count ?? 0) > 0
+        if (!alreadyPrepared) {
+          const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
+          if (error) {
+            console.warn('[prepare_today] RPC error (non-fatal):', error)
+            return
+          }
+        }
+        // mark done (once/day per device) and refresh UI data
+        lsSet(lsKey, '1')
+        autoSkipRanRef.current = true
+        await fetchStudents()
+        await refetchTodayRoster()
+      } catch (e) {
+        console.warn('[autoskip guard] unexpected error (non-fatal):', e)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+
 
   // Track "picked today" independently of current status.
   // Seed from logs for today, then keep it in sync via handleSetStatus.
@@ -152,48 +191,37 @@ export default function App() {
       setSessionReady(true)
     })()
 
-    const runAutoSkipGuard = async () => {
-      const todayEST = todayKeyEST()
-      const lsKey = `sd_autoskip_${todayEST}`
-      if (lsGet(lsKey)) return
-      try {
-        // COUNT-only guard (data is null with head:true)
-        const { count, error: rsErr } = await supabase
-          .from('roster_status')
-          .select('*', { count: 'exact', head: true })
-          .eq('roster_date', todayEST)
-        if (rsErr) console.warn('[autoskip guard] roster_status count error:', rsErr)
-        const alreadyPrepared = (count ?? 0) > 0
-        if (!alreadyPrepared) {
-          const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
-          if (error) {
-            console.warn('[prepare_today] RPC error (non-fatal):', error)
-            return
-          }
-        }
-        // Mark done and refresh data for the UI
-        lsSet(lsKey, '1')
-        await fetchStudents()
-        await refetchTodayRoster()
-      } catch (e) {
-        console.warn('[autoskip guard] unexpected error (non-fatal):', e)
-      }
-    }
+    
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (evt, sess) => {
-      setIsAuthed(!!sess)
-      setSessionReady(true)
+    // auth event hook — run guard on both persisted and fresh sessions
+     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (evt, sess) => {
+       setIsAuthed(!!sess)
+       setSessionReady(true)
       // Handle both persisted session and fresh sign-in
-      if ((evt === 'INITIAL_SESSION' || evt === 'SIGNED_IN') && sess?.user) {
+       if ((evt === 'INITIAL_SESSION' || evt === 'SIGNED_IN') && sess?.user) {
+
         await runAutoSkipGuard()
-      }
-    })
+       }
+     })
 
     return () => {
       mounted = false
       subscription.unsubscribe()
     }
   }, [])
+
+  // Fallback: if auth callback timing doesn’t trigger (rare), run the guard
+  // once when the app knows we are authed and session is ready.
+  useEffect(() => {
+    if (!sessionReady || !isAuthed) return
+    // runAutoSkipGuard has its own once-per-day + per-mount guard
+    runAutoSkipGuard()
+      .catch(() => {
+        // swallow; guard already logs non-fatals
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionReady, isAuthed, rosterDateEST])
+
 
   useEffect(() => {
     if (!isAuthed) return
