@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import type { Status, StudentRow } from './types'
 import BusPage from './pages/BusPage'
@@ -143,45 +143,59 @@ export default function App() {
       setIsAuthed(!!data.session)
       setSessionReady(true)
     })()
-    const { data: sub } = supabase.auth.onAuthStateChange(async (evt, sess) => {
-      setIsAuthed(!!sess)
-      setSessionReady(true)
-      if (evt !== 'SIGNED_IN' || !sess?.user) return
-
-      // Compute today's key at the moment of sign-in (EST)
+    const runAutoSkipGuard = async () => {
       const todayEST = todayKeyEST()
       const lsKey = `sd_autoskip_${todayEST}`
-
-      // If we’ve already run today on this device, short-circuit fast.
       if (localStorage.getItem(lsKey)) return
-
       try {
-        // Strong guard: if any roster_status for today exists, assume prepare+autoskip already ran.
-        const { data: rs, error: rsErr } = await supabase
+        // Head-count guard: use count from Supabase (data will be null with head:true)
+        const { count, error: rsErr } = await supabase
           .from('roster_status')
-          .select('student_id', { count: 'exact', head: true })
+          .select('*', { count: 'exact', head: true })
           .eq('roster_date', todayEST)
-
-        if (rsErr) {
-          console.warn('[autoskip guard] roster_status count error (continuing defensively):', rsErr)
-        }
-
-        const alreadyPrepared = (rs && typeof (rs as any).length === 'number' ? (rs as any).length > 0 : false)
-
+        if (rsErr) console.warn('[autoskip guard] roster_status count error:', rsErr)
+        const alreadyPrepared = (count ?? 0) > 0
         if (!alreadyPrepared) {
           const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
           if (error) {
             console.warn('[prepare_today] RPC error (non-fatal):', error)
-          } else {
-            // only stamp success when RPC succeeded
-            localStorage.setItem(lsKey, '1')
+            return
           }
-        } else {
-          // roster exists already — treat as prepared for today
-          localStorage.setItem(lsKey, '1')
         }
+        // stamp once per day (only after success or when already prepared)
+        localStorage.setItem(lsKey, '1')
+        // refresh data so UI shows new rows
+        await fetchStudents()
+        await refetchTodayRoster()
       } catch (e) {
         console.warn('[autoskip guard] unexpected error (non-fatal):', e)
+      }
+    }
+
+      // Fallback: if for any reason auth callback timing differed, run guard once when session is ready & authed
+  const autoSkipOnceRef = useRef(false)
+  useEffect(() => {
+    (async () => {
+      if (!sessionReady || !isAuthed) return
+      if (autoSkipOnceRef.current) return
+      autoSkipOnceRef.current = true
+      // same guard as auth handler
+      const todayEST = todayKeyEST()
+      const lsKey = `sd_autoskip_${todayEST}`
+      if (!localStorage.getItem(lsKey)) {
+        const { count } = await supabase.from('roster_status').select('*', { count:'exact', head:true }).eq('roster_date', todayEST)
+        if ((count ?? 0) === 0) await supabase.rpc('api_prepare_today_and_apply_auto_skip')
+        localStorage.setItem(lsKey, '1'); await fetchStudents(); await refetchTodayRoster()
+      }
+    })()
+  }, [sessionReady, isAuthed, rosterDateEST])
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (evt, sess) => {
+      setIsAuthed(!!sess)
+      setSessionReady(true)
+      // Run on *both* initial session (persisted login) and real sign-in
+      if ((evt === 'INITIAL_SESSION' || evt === 'SIGNED_IN') && sess?.user) {
+        await runAutoSkipGuard()
       }
     })
     return () => { sub.subscription.unsubscribe() }
