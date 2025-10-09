@@ -195,7 +195,7 @@ export default function CenterPage({ students, roster, rosterTimes, onSet }: Pro
               ))}
             </div>
           </div>
-
+)}
           {/* Right: Direct Check-in (No Bus) */}
           <div className="card">
             <h3 className="section-title">Direct Check-in (No Bus)</h3>
