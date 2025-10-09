@@ -146,19 +146,42 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange(async (evt, sess) => {
       setIsAuthed(!!sess)
       setSessionReady(true)
-      // Only run auto-skip when a real sign-in happens, not on refresh.
-      if (evt === 'SIGNED_IN' && sess?.user) {
-        const key = `sd_autoskip_${rosterDateEST}`
-        if (!localStorage.getItem(key)) {
-          try {
-            const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
-            if (error) console.warn('[prepare_today] RPC error (non-fatal):', error)
-          } catch (e) {
-            console.warn('[prepare_today] unexpected error (non-fatal):', e)
-          } finally {
-            localStorage.setItem(key, '1')
-          }
+      if (evt !== 'SIGNED_IN' || !sess?.user) return
+
+      // Compute today's key at the moment of sign-in (EST)
+      const todayEST = todayKeyEST()
+      const lsKey = `sd_autoskip_${todayEST}`
+
+      // If we’ve already run today on this device, short-circuit fast.
+      if (localStorage.getItem(lsKey)) return
+
+      try {
+        // Strong guard: if any roster_status for today exists, assume prepare+autoskip already ran.
+        const { data: rs, error: rsErr } = await supabase
+          .from('roster_status')
+          .select('student_id', { count: 'exact', head: true })
+          .eq('roster_date', todayEST)
+
+        if (rsErr) {
+          console.warn('[autoskip guard] roster_status count error (continuing defensively):', rsErr)
         }
+
+        const alreadyPrepared = (rs && typeof (rs as any).length === 'number' ? (rs as any).length > 0 : false)
+
+        if (!alreadyPrepared) {
+          const { error } = await supabase.rpc('api_prepare_today_and_apply_auto_skip')
+          if (error) {
+            console.warn('[prepare_today] RPC error (non-fatal):', error)
+          } else {
+            // only stamp success when RPC succeeded
+            localStorage.setItem(lsKey, '1')
+          }
+        } else {
+          // roster exists already — treat as prepared for today
+          localStorage.setItem(lsKey, '1')
+        }
+      } catch (e) {
+        console.warn('[autoskip guard] unexpected error (non-fatal):', e)
       }
     })
     return () => { sub.subscription.unsubscribe() }
