@@ -330,6 +330,51 @@ export default function App() {
       meta.pickupPerson = meta.override
     }
 
+
+    /* === NEW: Require approved pickup selection before checkout ===
+       Rules:
+       - When st === 'checked', pickupPerson must be provided AND be in the student's approved list (if any).
+       - If the student has no approved list configured (null/empty), still require a non-empty pickupPerson.
+         (You can relax this last clause later if desired.)
+    */
+    if (st === 'checked') {
+      const person = String(meta?.pickupPerson ?? '').trim()
+      if (!person) {
+        alert('Please select an approved pickup before checking out.')
+        return
+      }
+      // Pull the student's approved list (handles array or legacy JSON-string)
+      const stu = students.find(s => s.id === studentId)
+      let approved: string[] = []
+      if (stu) {
+        const raw: any = (stu as any).approved_pickups
+        if (Array.isArray(raw)) {
+          approved = raw.map(v => String(v).trim()).filter(Boolean)
+        } else if (typeof raw === 'string') {
+          try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+              approved = parsed.map((v: any) => String(v).trim()).filter(Boolean)
+            }
+          } catch { /* ignore bad JSON */ }
+        }
+      }
+      // If list exists (length > 0), enforce membership (case-insensitive)
+      if (approved.length > 0) {
+        const norm = (s: string) => s.toLowerCase()
+        const ok = approved.some(ap => norm(ap) === norm(person))
+        if (!ok) {
+          alert(`"${person}" is not in the approved pickup list for this student.`)
+          return
+        }
+      }
+    }
+
+
+
+
+
+
     const isUndo     = ORDER[st] < ORDER[prevStatus]
     const enrichedMeta = {
       ...(meta ?? {}),
