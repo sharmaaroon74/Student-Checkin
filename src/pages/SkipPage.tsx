@@ -34,8 +34,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [dateDraft, setDateDraft] = useState<string>('')
   const [dates, setDates] = useState<string[]>([])
   const [note, setNote] = useState<string>('')
-  const [future, setFuture] = useState<Array<{ student_id: string; student_name: string; school: string | null; on_date: string; note: string | null; is_active: boolean }>>([])
-  const [loadingFuture, setLoadingFuture] = useState(false)
+  const [future, setFuture] = useState<Array<{ student_id: string; student_name: string; school: string | null; on_date: string; note: string | null }>>([])  const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Display name according to current sort toggle
@@ -81,10 +80,11 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     try {
       const from = todayKey()
       const to = '2999-12-31'
-      // Single query joins students so we can show names/schools
+      // Global read of all ACTIVE current/future schedules; join students for display
       const { data, error } = await supabase
         .from('future_skips')
         .select('student_id, on_date, note, is_active, students!inner(id, first_name, last_name, school)')
+        .eq('is_active', true)
         .gte('on_date', from)
         .order('on_date', { ascending: true })
       if (error) throw error
@@ -94,7 +94,6 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
         school: r.students.school ?? null,
         on_date: r.on_date as string,
         note: r.note ?? null,
-        is_active: !!r.is_active,
       }))
       setFuture(rows)
     } catch (e) {
@@ -133,17 +132,16 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     } finally { setSaving(false) }
   }
 
-  async function unschedule(dateStr: string) {
-    if (!schedStudentId) return
+  async function unschedule(studentId: string, dateStr: string) {
     try {
       try {
         const { error } = await supabase.rpc('api_unschedule_future_skip', {
-          p_student_id: schedStudentId, p_date: dateStr
+          p_student_id: studentId, p_date: dateStr
         })
         if (error) throw error
       } catch {
         const { error } = await supabase.from('future_skips').update({ is_active: false })
-          .eq('student_id', schedStudentId).eq('on_date', dateStr)
+          .eq('student_id', studentId).eq('on_date', dateStr)
         if (error) throw error
       }
       await refreshFutureList()
@@ -286,27 +284,40 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
             ) : future.length===0 ? (
               <div className="muted">No future skip dates found.</div>
             ) : (
-              <div className="list">
-                {future.map(row=>(
-                  <div key={`${row.on_date}-${row.student_id}`} className="card-row sd-row">
-                    <div>
-                      <div className="heading">{row.on_date}</div>
-                      <div className="sub">{row.note || ''} {row.is_active ? '' : '(inactive)'}</div>
-                      <div className="heading">
-                        {row.on_date} • {row.student_name}
+              /* Group by date for a cleaner, scannable list */
+              (() => {
+                const groups: Record<string, typeof future> = {}
+                for (const r of future) {
+                  (groups[r.on_date] ??= []).push(r)
+                }
+                const dates = Object.keys(groups).sort()
+                return (
+                  <div className="list">
+                    {dates.map(dt => (
+                      <div key={dt} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
+                        <div className="heading" style={{marginBottom:6}}>{dt}</div>
+                        <div className="col" style={{gap:6}}>
+                          {groups[dt]
+                            .slice()
+                            .sort((a,b)=>a.student_name.localeCompare(b.student_name))
+                            .map(r => (
+                              <div key={`${dt}-${r.student_id}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
+                                <div className="row" style={{gap:8, flexWrap:'wrap'}}>
+                                  <span className="chip">{r.student_name}</span>
+                                  {r.school ? <span className="muted">{r.school}</span> : null}
+                                  {r.note ? <span className="muted">• {r.note}</span> : null}
+                                </div>
+                                <div className="sd-card-actions">
+                                  <button className="btn" onClick={()=>unschedule(r.student_id, dt)}>Remove</button>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
                       </div>
-                      <div className="sub">
-                        {(row.school || '')} {row.note ? `• ${row.note}` : ''} {row.is_active ? '' : '• (inactive)'}
-                      </div>
-                    </div>
-                    <div className="sd-card-actions">
-                      {row.is_active && (
-                        <button className="btn" onClick={()=>unschedule(row.on_date)}>Remove</button>
-                      )}
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )
+              })()
             )}
           </div>
         </div>
