@@ -34,7 +34,8 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [dateDraft, setDateDraft] = useState<string>('')
   const [dates, setDates] = useState<string[]>([])
   const [note, setNote] = useState<string>('')
-  const [future, setFuture] = useState<Array<{ student_id: string; student_name: string; school: string | null; on_date: string; note: string | null }>>([])  const [loadingFuture, setLoadingFuture] = useState(false)
+  const [future, setFuture] = useState<Array<{ student_id: string; student_name: string; school: string | null; on_date: string; note: string | null }>>([])  
+  const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Display name according to current sort toggle
