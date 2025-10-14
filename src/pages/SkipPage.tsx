@@ -34,7 +34,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [dateDraft, setDateDraft] = useState<string>('')
   const [dates, setDates] = useState<string[]>([])
   const [note, setNote] = useState<string>('')
-  const [future, setFuture] = useState<Array<{ on_date: string; note: string | null; is_active: boolean }>>([])
+  const [future, setFuture] = useState<Array<{ student_id: string; student_name: string; school: string | null; on_date: string; note: string | null; is_active: boolean }>>([])
   const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -75,31 +75,28 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
       .format(new Date())
 
+  // Fetch ALL current/future scheduled skips (global list)
   async function refreshFutureList() {
-    if (!schedStudentId) { setFuture([]); return }
     setLoadingFuture(true)
     try {
       const from = todayKey()
       const to = '2999-12-31'
-      let rows: any[] | null = null
-      try {
-        const { data, error } = await supabase.rpc('api_list_future_skips', {
-          p_student_id: schedStudentId, p_from: from, p_to: to
-        })
-        if (error) throw error
-        rows = data as any[]
-      } catch {
-        // Fallback to direct table access (works with permissive RLS policy above)
-        const { data, error } = await supabase
-          .from('future_skips')
-          .select('on_date, note, is_active')
-          .eq('student_id', schedStudentId)
-          .gte('on_date', from)
-          .order('on_date', { ascending: true })
-        if (error) throw error
-        rows = data || []
-      }
-      setFuture(rows!.map(r => ({ on_date: r.on_date, note: r.note ?? null, is_active: !!r.is_active })))
+      // Single query joins students so we can show names/schools
+      const { data, error } = await supabase
+        .from('future_skips')
+        .select('student_id, on_date, note, is_active, students!inner(id, first_name, last_name, school)')
+        .gte('on_date', from)
+        .order('on_date', { ascending: true })
+      if (error) throw error
+      const rows = (data || []).map((r: any) => ({
+        student_id: r.student_id as string,
+        student_name: `${r.students.first_name} ${r.students.last_name}`,
+        school: r.students.school ?? null,
+        on_date: r.on_date as string,
+        note: r.note ?? null,
+        is_active: !!r.is_active,
+      }))
+      setFuture(rows)
     } catch (e) {
       console.warn('[future skips] fetch', e)
       setFuture([])
@@ -108,7 +105,8 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     }
   }
 
-  useEffect(() => { if (view === 'schedule') { refreshFutureList() } }, [view, schedStudentId])
+  // List should refresh when entering Schedule, or after schedule changes
+  useEffect(() => { if (view === 'schedule') { refreshFutureList() } }, [view])
 
   async function scheduleDates() {
     if (!schedStudentId) { alert('Choose a student.'); return }
@@ -256,19 +254,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
                   if (!d) return
                   setDates(prev => prev.includes(d) ? prev : [...prev, d].sort())
                 }}>Add</button>
-                <button className="btn" onClick={()=>{
-                  // Quick: Next Friday (NY tz)
-                  const now = new Date()
-                  for (let i=1;i<=14;i++){
-                    const t = new Date(now.getTime() + i*86400000)
-                    const wd = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York', weekday:'short'}).format(t)
-                    if (wd === 'Fri') {
-                      const iso = new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(t)
-                      setDates(prev => prev.includes(iso)?prev:[...prev, iso].sort())
-                      break
-                    }
-                  }
-                }}>+ Next Friday</button>
+
               </div>
               <div className="row" style={{gap:6, flexWrap:'wrap'}}>
                 {dates.length===0 ? <span className="muted">No dates added.</span> :
@@ -295,19 +281,23 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
           {/* Right: upcoming schedule */}
           <div className="card">
             <h3 className="section-title">Upcoming Scheduled Skips</h3>
-            {!schedStudentId ? (
-              <div className="muted">Select a student to view their upcoming scheduled skips.</div>
-            ) : loadingFuture ? (
+              {loadingFuture ? (
               <div className="muted">Loading…</div>
             ) : future.length===0 ? (
               <div className="muted">No future skip dates found.</div>
             ) : (
               <div className="list">
                 {future.map(row=>(
-                  <div key={row.on_date} className="card-row sd-row">
+                  <div key={`${row.on_date}-${row.student_id}`} className="card-row sd-row">
                     <div>
                       <div className="heading">{row.on_date}</div>
                       <div className="sub">{row.note || ''} {row.is_active ? '' : '(inactive)'}</div>
+                      <div className="heading">
+                        {row.on_date} • {row.student_name}
+                      </div>
+                      <div className="sub">
+                        {(row.school || '')} {row.note ? `• ${row.note}` : ''} {row.is_active ? '' : '• (inactive)'}
+                      </div>
                     </div>
                     <div className="sd-card-actions">
                       {row.is_active && (
