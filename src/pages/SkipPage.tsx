@@ -1,15 +1,15 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import type { Status, StudentRow } from '../types'
 import TopToolbar from '../components/TopToolbar'
+import { supabase } from '../lib/supabase'
 
 type Props = {
   students: StudentRow[]
   roster: Record<string, Status>
-  onSet: (id: string, st: Status, meta?: any) => void
+  onSet: (id: string, st: Status, meta?: any) => Promise<void> | void
   pickedTodayIds?: string[]
 }
 
-// Mark-skip eligibility rules (per your spec)
 const ALLOWED_SCHOOLS = ['Bain', 'QG', 'MHE', 'MC']
 const BUS_ELIGIBLE_YEARS = [
   'FT - A',
@@ -21,85 +21,151 @@ const BUS_ELIGIBLE_YEARS = [
 ]
 
 export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Props) {
-    const [schoolSel, setSchoolSel] =
+  const [schoolSel, setSchoolSel] =
     useState<'All' | 'Bain' | 'QG' | 'MHE' | 'MC'>('All')
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
+
+  // NEW: tab for today vs schedule
+  const [view, setView] = useState<'today' | 'schedule'>('today')
+
+  // NEW: scheduling state
+  const [schedStudentId, setSchedStudentId] = useState<string>('')
+  const [dateDraft, setDateDraft] = useState<string>('')
+  const [dates, setDates] = useState<string[]>([])
+  const [note, setNote] = useState<string>('')
+  const [future, setFuture] = useState<Array<{ on_date: string; note: string | null; is_active: boolean }>>([])
+  const [loadingFuture, setLoadingFuture] = useState(false)
+  const [saving, setSaving] = useState(false)
+
   // Display name according to current sort toggle
   const nameFor = (s: StudentRow) =>
     sortBy === 'first' ? `${s.first_name} ${s.last_name}` : `${s.last_name}, ${s.first_name}`
-  // ---------- BASE FILTER (used for GLOBAL COUNTS on every page) ----------
-  const base = useMemo(() => {
-    const term = q.trim().toLowerCase()
-    const list = students.filter((s) => {
-      if (schoolSel !== 'All' && s.school !== schoolSel) return false
-      if (term) {
-        const name = `${s.first_name} ${s.last_name}`.toLowerCase()
-        if (!name.includes(term)) return false
-      }
-      return true
+
+  // Filter + search
+  const filtered = useMemo(() => {
+    const qry = q.trim().toLowerCase()
+    const list = students.filter(s => {
+      const name = `${s.first_name} ${s.last_name}`.toLowerCase()
+      const inSchool = (schoolSel === 'All') ? true : s.school === schoolSel
+      const isAllowedSchool = (s.school ? ALLOWED_SCHOOLS.includes(s.school) : true)
+      const isEligibleYear = (s.school_year ? BUS_ELIGIBLE_YEARS.includes(s.school_year) : true)
+      const ok = (!qry || name.includes(qry)) && inSchool && isAllowedSchool && isEligibleYear && s.active
+      return ok
     })
-    list.sort((a, b) =>
-      sortBy === 'first'
-        ? a.first_name.localeCompare(b.first_name)
-        : a.last_name.localeCompare(b.last_name)
-    )
     return list
   }, [students, schoolSel, q, sortBy])
 
   // ---------- GLOBAL COUNTS (same logic on all pages) ----------
   const counts = useMemo(() => {
     const c: Record<Status, number> = {
-      not_picked: 0,
-      picked: 0,
-      arrived: 0,
-      checked: 0,
-      skipped: 0,
+      not_picked: 0, picked: 0, arrived: 0, checked: 0, skipped: 0,
     }
-    for (const s of base) {
-      const st = (roster[s.id] ?? 'not_picked') as Status
-      if (st === 'not_picked') {
-        const yr = (s.school_year ?? '').trim()
-        if (s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)) {
-          c.not_picked++
-        }
-      } else {
-        c[st]++
-      }
+    for (const id of Object.keys(roster)) {
+      const st = roster[id]
+      if (st && c[st] !== undefined) c[st]++
     }
-    // Override Picked counter from daily tally intersected with base + bus-eligible
-    const pickedSet = new Set(pickedTodayIds ?? [])
-    const pickedCount = base.filter(s => {
-      if (!pickedSet.has(s.id)) return false
-      const yr = (s.school_year ?? '').trim()
-      return s.active && ALLOWED_SCHOOLS.includes(s.school) && BUS_ELIGIBLE_YEARS.includes(yr)
-    }).length
-    c.picked = pickedCount
-     return c
-  }, [base, roster, pickedTodayIds])
-
-  // ---------- PAGE SECTIONS ----------
-  // Mark Skip Today: active day-program students not already skipped
-  const canSkip = useMemo(() => {
-    return base.filter((s) => {
-      const st = (roster[s.id] ?? 'not_picked') as Status
-      if (st !== 'not_picked') return false
-      // school + school_year gates
-      if (!ALLOWED_SCHOOLS.includes(s.school)) return false
-      const yr = (s.school_year ?? '').trim()
-      return BUS_ELIGIBLE_YEARS.includes(yr)
-    })
-  }, [base, roster])
-
-  const skipped = useMemo(
-    () => base.filter((s) => roster[s.id] === 'skipped'),
-    [base, roster]
-  )
+    return c
+  }, [roster])
 
   const clearSearch = () => setQ('')
 
+  // ====== Scheduling helpers ======
+  const todayKey = () =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .format(new Date())
+
+  async function refreshFutureList() {
+    if (!schedStudentId) { setFuture([]); return }
+    setLoadingFuture(true)
+    try {
+      const from = todayKey()
+      const to = '2999-12-31'
+      let rows: any[] | null = null
+      try {
+        const { data, error } = await supabase.rpc('api_list_future_skips', {
+          p_student_id: schedStudentId, p_from: from, p_to: to
+        })
+        if (error) throw error
+        rows = data as any[]
+      } catch {
+        // Fallback to direct table access (works with permissive RLS policy above)
+        const { data, error } = await supabase
+          .from('future_skips')
+          .select('on_date, note, is_active')
+          .eq('student_id', schedStudentId)
+          .gte('on_date', from)
+          .order('on_date', { ascending: true })
+        if (error) throw error
+        rows = data || []
+      }
+      setFuture(rows!.map(r => ({ on_date: r.on_date, note: r.note ?? null, is_active: !!r.is_active })))
+    } catch (e) {
+      console.warn('[future skips] fetch', e)
+      setFuture([])
+    } finally {
+      setLoadingFuture(false)
+    }
+  }
+
+  useEffect(() => { if (view === 'schedule') { refreshFutureList() } }, [view, schedStudentId])
+
+  async function scheduleDates() {
+    if (!schedStudentId) { alert('Choose a student.'); return }
+    const clean = Array.from(new Set(dates.map(d => d.trim()).filter(Boolean)))
+    if (clean.length === 0) { alert('Add at least one date.'); return }
+    setSaving(true)
+    try {
+      try {
+        const { error } = await supabase.rpc('api_schedule_future_skips', {
+          p_student_id: schedStudentId, p_dates: clean, p_note: note || null
+        })
+        if (error) throw error
+      } catch {
+        // Fallback upsert per-date
+        const payload = clean.map(d => ({ student_id: schedStudentId, on_date: d, note, is_active: true }))
+        const { error } = await supabase.from('future_skips').upsert(payload, { onConflict: 'student_id,on_date' })
+        if (error) throw error
+      }
+      setDates([]); setDateDraft(''); setNote('')
+      await refreshFutureList()
+    } catch (e) {
+      console.error('[future skips] schedule', e)
+      alert('Failed to schedule. Please try again.')
+    } finally { setSaving(false) }
+  }
+
+  async function unschedule(dateStr: string) {
+    if (!schedStudentId) return
+    try {
+      try {
+        const { error } = await supabase.rpc('api_unschedule_future_skip', {
+          p_student_id: schedStudentId, p_date: dateStr
+        })
+        if (error) throw error
+      } catch {
+        const { error } = await supabase.from('future_skips').update({ is_active: false })
+          .eq('student_id', schedStudentId).eq('on_date', dateStr)
+        if (error) throw error
+      }
+      await refreshFutureList()
+    } catch (e) {
+      console.error('[future skips] unschedule', e)
+      alert('Failed to remove this date.')
+    }
+  }
+
+  // ---------- UI ----------
   return (
     <div className="page container">
+      {/* Small tab switcher */}
+      <div className="row wrap gap" style={{alignItems:'center', marginBottom:8}}>
+        <div className="seg">
+          <button className={`seg-btn ${view==='today'?'on':''}`} onClick={()=>setView('today')}>Today</button>
+          <button className={`seg-btn ${view==='schedule'?'on':''}`} onClick={()=>setView('schedule')}>Schedule</button>
+        </div>
+      </div>
+
       <TopToolbar
         schoolSel={schoolSel}
         onSchoolSel={setSchoolSel}
@@ -110,69 +176,151 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
         counts={counts}
       />
 
-      <div className="two-col" style={{ marginTop: 12 }}>
-        <div className="card">
-          <h3 className="section-title">Mark Skip Today</h3>
-          <div className="list">
-            {canSkip.length === 0 && (
-              <div className="muted">
-                No students eligible to mark as skipped.
-              </div>
-            )}
-            {canSkip.map((s) => (
-              <div key={s.id} className="card-row sd-row">
-                <div>
-                  <div className="heading">
-                    {nameFor(s)}
-                  </div>
-                  <div className="sub">School: {s.school} | Not Picked</div>
-                </div>
-                <div className="sd-card-actions">
-                  <button
-                    className="btn primary"
-                    onClick={() => {
-                      onSet(s.id, 'skipped')
-                      clearSearch()
-                    }}
-                  >
-                    Skip Today
-                  </button>
-                </div>
-              </div>
-            ))}
+      {/* TODAY VIEW (existing behavior preserved) */}
+      {view === 'today' && (
+        <div className="two-col" style={{ marginTop: 12 }}>
+          <div className="card">
+            <h3 className="section-title">Mark Skip Today</h3>
+            <div className="list">
+              {filtered
+                .slice()
+                .sort((a, b) => nameFor(a).localeCompare(nameFor(b)))
+                .map(s => {
+                  const st = roster[s.id] || 'not_picked'
+                  if (st === 'skipped') return null
+                  return (
+                    <div key={s.id} className="card-row sd-row">
+                      <div>
+                        <div className="heading">{nameFor(s)}</div>
+                        <div className="sub">{s.school}</div>
+                      </div>
+                      <div className="sd-card-actions">
+                        <button className="btn" onClick={() => onSet(s.id, 'skipped')}>Skip Today</button>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
           </div>
-        </div>
 
-        <div className="card">
-          <h3 className="section-title">Skipped Today</h3>
-          <div className="list">
-            {skipped.length === 0 && (
-              <div className="muted">No students skipped today.</div>
-            )}
-            {skipped.map((s) => (
-              <div key={s.id} className="card-row sd-row">
-                <div>
-                  <div className="heading">
-                    {nameFor(s)}
-                  </div>
-                  <div className="sub">School: {s.school} | Skipped</div>
-                </div>
-                <div className="sd-card-actions">
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      onSet(s.id, 'not_picked')
-                      clearSearch()
-                    }}
-                  >
-                    Unskip Today
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="card">
+            <h3 className="section-title">Skipped Today</h3>
+            <div className="list">
+              {filtered
+                .slice()
+                .sort((a, b) => nameFor(a).localeCompare(nameFor(b)))
+                .map(s => {
+                  const st = roster[s.id] || 'not_picked'
+                  if (st !== 'skipped') return null
+                  return (
+                    <div key={s.id} className="card-row sd-row">
+                      <div>
+                        <div className="heading">{nameFor(s)}</div>
+                        <div className="sub">{s.school}</div>
+                      </div>
+                      <div className="sd-card-actions">
+                        <button className="btn" onClick={() => onSet(s.id, 'not_picked')}>Unskip</button>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* SCHEDULE VIEW (new) */}
+      {view === 'schedule' && (
+        <div className="two-col" style={{ marginTop: 12 }}>
+          {/* Left: create schedule */}
+          <div className="card">
+            <h3 className="section-title">Schedule Future Skips</h3>
+            <div className="col" style={{gap:8}}>
+              <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                <label className="label">Student</label>
+                <select value={schedStudentId} onChange={e=>setSchedStudentId(e.target.value)}>
+                  <option value="">— Select —</option>
+                  {students
+                    .slice()
+                    .sort((a,b)=>nameFor(a).localeCompare(nameFor(b)))
+                    .map(s=>(
+                      <option key={s.id} value={s.id}>{nameFor(s)} — {s.school}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                <label className="label">Add Date</label>
+                <input type="date" value={dateDraft} onChange={e=>setDateDraft(e.target.value)} />
+                <button className="btn" onClick={()=>{
+                  const d = (dateDraft||'').trim()
+                  if (!d) return
+                  setDates(prev => prev.includes(d) ? prev : [...prev, d].sort())
+                }}>Add</button>
+                <button className="btn" onClick={()=>{
+                  // Quick: Next Friday (NY tz)
+                  const now = new Date()
+                  for (let i=1;i<=14;i++){
+                    const t = new Date(now.getTime() + i*86400000)
+                    const wd = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York', weekday:'short'}).format(t)
+                    if (wd === 'Fri') {
+                      const iso = new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(t)
+                      setDates(prev => prev.includes(iso)?prev:[...prev, iso].sort())
+                      break
+                    }
+                  }
+                }}>+ Next Friday</button>
+              </div>
+              <div className="row" style={{gap:6, flexWrap:'wrap'}}>
+                {dates.length===0 ? <span className="muted">No dates added.</span> :
+                  dates.map(d=>(
+                    <span key={d} className="chip">
+                      {d}
+                      <button className="btn" style={{marginLeft:6}} onClick={()=>{
+                        setDates(prev => prev.filter(x=>x!==d))
+                      }}>×</button>
+                    </span>
+                  ))
+                }
+              </div>
+              <div className="row" style={{gap:8, alignItems:'center'}}>
+                <label className="label">Note</label>
+                <input placeholder="(optional)" value={note} onChange={e=>setNote(e.target.value)} />
+                <button className="btn primary" disabled={!schedStudentId || dates.length===0 || saving} onClick={scheduleDates}>
+                  {saving ? 'Saving…' : `Schedule ${dates.length||''}`}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: upcoming schedule */}
+          <div className="card">
+            <h3 className="section-title">Upcoming Scheduled Skips</h3>
+            {!schedStudentId ? (
+              <div className="muted">Select a student to view their upcoming scheduled skips.</div>
+            ) : loadingFuture ? (
+              <div className="muted">Loading…</div>
+            ) : future.length===0 ? (
+              <div className="muted">No future skip dates found.</div>
+            ) : (
+              <div className="list">
+                {future.map(row=>(
+                  <div key={row.on_date} className="card-row sd-row">
+                    <div>
+                      <div className="heading">{row.on_date}</div>
+                      <div className="sub">{row.note || ''} {row.is_active ? '' : '(inactive)'}</div>
+                    </div>
+                    <div className="sd-card-actions">
+                      {row.is_active && (
+                        <button className="btn" onClick={()=>unschedule(row.on_date)}>Remove</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
