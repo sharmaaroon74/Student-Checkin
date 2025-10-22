@@ -26,10 +26,10 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<'first' | 'last'>('first')
 
-  // NEW: tab for today vs schedule
+  // Tabs
   const [view, setView] = useState<'today' | 'schedule'>('today')
 
-  // NEW: scheduling state
+  // Scheduling state
   const [schedStudentId, setSchedStudentId] = useState<string>('')
   const [dateDraft, setDateDraft] = useState<string>('')
   const [dates, setDates] = useState<string[]>([])
@@ -38,11 +38,17 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // NEW: pattern scheduling UI state
+  const [patternDays, setPatternDays] = useState<{[k in 'M'|'T'|'W'|'R'|'F'|'Sa'|'Su']?: boolean}>({})
+  const [patternEnd, setPatternEnd] = useState<string>('') // YYYY-MM-DD
+  // When on: include only every other week occurrences for the selected weekdays.
+  const [patternAlternateWeeks, setPatternAlternateWeeks] = useState<boolean>(false)
+
   // Display name according to current sort toggle
   const nameFor = (s: StudentRow) =>
     sortBy === 'first' ? `${s.first_name} ${s.last_name}` : `${s.last_name}, ${s.first_name}`
 
-  // Filter + search
+  // Filter + search for Today tab
   const filtered = useMemo(() => {
     const qry = q.trim().toLowerCase()
     const list = students.filter(s => {
@@ -75,13 +81,11 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
       .format(new Date())
 
-  // Fetch ALL current/future scheduled skips (global list)
+  // Fetch ALL current/future scheduled skips (global list, active only)
   async function refreshFutureList() {
     setLoadingFuture(true)
     try {
       const from = todayKey()
-      const to = '2999-12-31'
-      // Global read of all ACTIVE current/future schedules; join students for display
       const { data, error } = await supabase
         .from('future_skips')
         .select('student_id, on_date, note, is_active, students!inner(id, first_name, last_name, school)')
@@ -152,10 +156,80 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     }
   }
 
+  // === Pattern helpers (NY-safe weekday logic) ===
+  function nyFormatYYYYMMDD(d: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
+    }).format(d)
+  }
+  function nyWeekdayCode(d: Date): 'M'|'T'|'W'|'R'|'F'|'Sa'|'Su' {
+    const wd = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', weekday: 'short'
+    }).format(d)
+    switch (wd) {
+      case 'Mon': return 'M'
+      case 'Tue': return 'T'
+      case 'Wed': return 'W'
+      case 'Thu': return 'R'
+      case 'Fri': return 'F'
+      case 'Sat': return 'Sa'
+      default: return 'Su'
+    }
+  }
+  function startOfWeekMondayNY(d: Date): Date {
+    const ymd = nyFormatYYYYMMDD(d)
+    const [y, m, day] = ymd.split('-').map(Number)
+    const base = new Date(Date.UTC(y, m-1, day)) // midnight of that NY day (UTC clock)
+    const wd = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York', weekday:'short'}).format(base)
+    const map: Record<string, number> = { 'Mon':0,'Tue':1,'Wed':2,'Thu':3,'Fri':4,'Sat':5,'Sun':6 }
+    const off = map[wd] ?? 0
+    return new Date(base.getTime() - off*86400000)
+  }
+  function weekIndexFrom(baseMonday: Date, d: Date): number {
+    const monday = startOfWeekMondayNY(d)
+    return Math.round((monday.getTime() - baseMonday.getTime()) / (7*86400000))
+  }
+  function generatePatternDates(endInclusive: string, days: {[k:string]:boolean}, alternateWeeks: boolean): string[] {
+    if (!endInclusive) return []
+    const todayNY = new Date()
+    const endParts = endInclusive.split('-').map(Number)
+    const endNY = new Date(Date.UTC(endParts[0], endParts[1]-1, endParts[2]))
+    const baseMonday = startOfWeekMondayNY(todayNY)
+    const startYmd = nyFormatYYYYMMDD(todayNY)
+    const start = new Date(Date.UTC(
+      Number(startYmd.slice(0,4)),
+      Number(startYmd.slice(5,7))-1,
+      Number(startYmd.slice(8,10))
+    ))
+    const out: string[] = []
+    for (let t = start; t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + 86400000)) {
+      const code = nyWeekdayCode(t)
+      if (!days[code]) continue
+      if (alternateWeeks) {
+        const w = weekIndexFrom(baseMonday, t)
+        if ((w % 2) !== 0) continue // keep every other week only
+      }
+      out.push(nyFormatYYYYMMDD(t))
+    }
+    return out
+  }
+  function addPatternDates() {
+    const anySelected = ['M','T','W','R','F','Sa','Su'].some(k => !!patternDays[k as keyof typeof patternDays])
+    if (!anySelected) { alert('Select at least one weekday.'); return }
+    if (!patternEnd) { alert('Choose an "Until" date.'); return }
+    const gen = generatePatternDates(patternEnd, patternDays, patternAlternateWeeks)
+    if (gen.length === 0) { alert('No dates were generated for the selected pattern.'); return }
+    setDates(prev => {
+      const set = new Set(prev)
+      for (const d of gen) set.add(d)
+      return Array.from(set).sort()
+    })
+  }
+
   // ---------- UI ----------
   return (
     <div className="page container">
-      {/* Small tab switcher */}
+      {/* Tab switcher */}
       <div className="row wrap gap" style={{alignItems:'center', marginBottom:8}}>
         <div className="seg">
           <button className={`seg-btn ${view==='today'?'on':''}`} onClick={()=>setView('today')}>Today</button>
@@ -226,13 +300,44 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
         </div>
       )}
 
-      {/* SCHEDULE VIEW (new) */}
+      {/* SCHEDULE VIEW */}
       {view === 'schedule' && (
         <div className="two-col" style={{ marginTop: 12 }}>
           {/* Left: create schedule */}
           <div className="card">
             <h3 className="section-title">Schedule Future Skips</h3>
             <div className="col" style={{gap:8}}>
+              {/* Pattern generator */}
+              <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                <label className="label">Pattern</label>
+                <div className="row" style={{gap:6, flexWrap:'wrap'}}>
+                  {(['M','T','W','R','F','Sa','Su'] as const).map(k=>(
+                    <label key={k} className="row" style={{gap:4, alignItems:'center'}}>
+                      <input
+                        type="checkbox"
+                        checked={!!patternDays[k]}
+                        onChange={e=>setPatternDays(p=>({...p, [k]: e.target.checked}))}
+                      />
+                      <span className="chip">{k}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                <label className="label">Until</label>
+                <input type="date" value={patternEnd} onChange={e=>setPatternEnd(e.target.value)} />
+                <label className="row" style={{gap:6, alignItems:'center'}}>
+                  <input
+                    type="checkbox"
+                    checked={patternAlternateWeeks}
+                    onChange={e=>setPatternAlternateWeeks(e.target.checked)}
+                  />
+                  <span className="label">Alternate weeks</span>
+                </label>
+                <button className="btn" onClick={addPatternDates}>Add pattern dates</button>
+              </div>
+              <hr />
+
               <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
                 <label className="label">Student</label>
                 <select value={schedStudentId} onChange={e=>setSchedStudentId(e.target.value)}>
@@ -253,7 +358,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
                   if (!d) return
                   setDates(prev => prev.includes(d) ? prev : [...prev, d].sort())
                 }}>Add</button>
-
+                {/* (manual add kept unchanged) */}
               </div>
               <div className="row" style={{gap:6, flexWrap:'wrap'}}>
                 {dates.length===0 ? <span className="muted">No dates added.</span> :
@@ -277,24 +382,21 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
             </div>
           </div>
 
-          {/* Right: upcoming schedule */}
+          {/* Right: upcoming schedule (global, grouped by date, active-only) */}
           <div className="card">
             <h3 className="section-title">Upcoming Scheduled Skips</h3>
-              {loadingFuture ? (
+            {loadingFuture ? (
               <div className="muted">Loading…</div>
             ) : future.length===0 ? (
               <div className="muted">No future skip dates found.</div>
             ) : (
-              /* Group by date for a cleaner, scannable list */
               (() => {
                 const groups: Record<string, typeof future> = {}
-                for (const r of future) {
-                  (groups[r.on_date] ??= []).push(r)
-                }
-                const dates = Object.keys(groups).sort()
+                for (const r of future) (groups[r.on_date] ??= []).push(r)
+                const datesSorted = Object.keys(groups).sort()
                 return (
                   <div className="list">
-                    {dates.map(dt => (
+                    {datesSorted.map(dt => (
                       <div key={dt} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
                         <div className="heading" style={{marginBottom:6}}>{dt}</div>
                         <div className="col" style={{gap:6}}>
