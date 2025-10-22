@@ -163,7 +163,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
       timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
     }).format(d)
   }
-  function nyWeekdayCode(d: Date): 'M'|'T'|'W'|'R'|'F' {
+  function nyWeekdayCode(d: Date): 'M'|'T'|'W'|'R'|'F' | null {
     const wd = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York', weekday: 'short'
     }).format(d)
@@ -173,7 +173,9 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
       case 'Wed': return 'W'
       case 'Thu': return 'R'
       case 'Fri': return 'F'
-      default:   return 'F' /* guard; we never include weekends in UI */
+      case 'Sat': return null
+      case 'Sun': return null
+      default:    return null
     }
   }
   function startOfWeekMondayNY(d: Date): Date {
@@ -205,6 +207,8 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     const out: string[] = []
     for (let t = new Date(startNY.getTime()); t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + 86400000)) {
       const code = nyWeekdayCode(t)
+      // Hard-stop weekends (Sat/Sun), even if user managed to toggle a guard-free state.
+      if (!code) continue
       if (!days[code]) continue
       const w = weekIndexFrom(baseMonday, t)
       if (everyNWeeks > 1 && (w % everyNWeeks) !== 0) continue
