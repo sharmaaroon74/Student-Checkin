@@ -46,11 +46,12 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // NEW: pattern scheduling UI state
-  const [patternDays, setPatternDays] = useState<{[k in 'M'|'T'|'W'|'R'|'F'|'Sa'|'Su']?: boolean}>({})
-  const [patternEnd, setPatternEnd] = useState<string>('') // YYYY-MM-DD
-  // When on: include only every other week occurrences for the selected weekdays.
-  const [patternAlternateWeeks, setPatternAlternateWeeks] = useState<boolean>(false)
+  // Meeting-style scheduler UI state (weekdays only; no weekends)
+  const [patternDays, setPatternDays] = useState<{[k in 'M'|'T'|'W'|'R'|'F']?: boolean}>({})
+  const [patternStart, setPatternStart] = useState<string>('') // YYYY-MM-DD
+  const [patternEnd, setPatternEnd] = useState<string>('')     // YYYY-MM-DD
+  // Every N weeks (1 = weekly, 2 = alternate weeks, etc.)
+  const [patternInterval, setPatternInterval] = useState<number>(1)
 
   // Display name according to current sort toggle
   const nameFor = (s: StudentRow) =>
@@ -164,13 +165,13 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     }
   }
 
-  // === Pattern helpers (NY-safe weekday logic) ===
+  // === Meeting-style pattern helpers (NY-safe weekday logic) ===
   function nyFormatYYYYMMDD(d: Date): string {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
     }).format(d)
   }
-  function nyWeekdayCode(d: Date): 'M'|'T'|'W'|'R'|'F'|'Sa'|'Su' {
+  function nyWeekdayCode(d: Date): 'M'|'T'|'W'|'R'|'F' {
     const wd = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York', weekday: 'short'
     }).format(d)
@@ -180,8 +181,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
       case 'Wed': return 'W'
       case 'Thu': return 'R'
       case 'Fri': return 'F'
-      case 'Sat': return 'Sa'
-      default: return 'Su'
+      default:   return 'F' /* guard; we never include weekends in UI */
     }
   }
   function startOfWeekMondayNY(d: Date): Date {
@@ -197,35 +197,36 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     const monday = startOfWeekMondayNY(d)
     return Math.round((monday.getTime() - baseMonday.getTime()) / (7*86400000))
   }
-  function generatePatternDates(endInclusive: string, days: {[k:string]:boolean}, alternateWeeks: boolean): string[] {
-    if (!endInclusive) return []
-    const todayNY = new Date()
-    const endParts = endInclusive.split('-').map(Number)
-    const endNY = new Date(Date.UTC(endParts[0], endParts[1]-1, endParts[2]))
-    const baseMonday = startOfWeekMondayNY(todayNY)
-    const startYmd = nyFormatYYYYMMDD(todayNY)
-    const start = new Date(Date.UTC(
-      Number(startYmd.slice(0,4)),
-      Number(startYmd.slice(5,7))-1,
-      Number(startYmd.slice(8,10))
-    ))
+  function parseYMD(ymd: string): Date | null {
+    if (!ymd) return null
+    const [y,m,d] = ymd.split('-').map(Number)
+    if (!y || !m || !d) return null
+    return new Date(Date.UTC(y, m-1, d))
+  }
+  function generatePatternDates(startInclusive: string, endInclusive: string, days: {[k:string]:boolean}, everyNWeeks: number): string[] {
+    if (!startInclusive || !endInclusive) return []
+    const startNY = parseYMD(startInclusive)
+    const endNY   = parseYMD(endInclusive)
+    if (!startNY || !endNY) return []
+    if (endNY.getTime() < startNY.getTime()) return []
+    const baseMonday = startOfWeekMondayNY(startNY)
     const out: string[] = []
-    for (let t = start; t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + 86400000)) {
+    for (let t = new Date(startNY.getTime()); t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + 86400000)) {
       const code = nyWeekdayCode(t)
       if (!days[code]) continue
-      if (alternateWeeks) {
-        const w = weekIndexFrom(baseMonday, t)
-        if ((w % 2) !== 0) continue // keep every other week only
-      }
+      const w = weekIndexFrom(baseMonday, t)
+      if (everyNWeeks > 1 && (w % everyNWeeks) !== 0) continue
       out.push(nyFormatYYYYMMDD(t))
     }
     return out
   }
   function addPatternDates() {
-    const anySelected = ['M','T','W','R','F','Sa','Su'].some(k => !!patternDays[k as keyof typeof patternDays])
+    const anySelected = ['M','T','W','R','F'].some(k => !!patternDays[k as keyof typeof patternDays])
     if (!anySelected) { alert('Select at least one weekday.'); return }
-    if (!patternEnd) { alert('Choose an "Until" date.'); return }
-    const gen = generatePatternDates(patternEnd, patternDays, patternAlternateWeeks)
+    if (!patternStart) { alert('Choose a Start date.'); return }
+    if (!patternEnd) { alert('Choose an End date.'); return }
+    if (patternInterval < 1 || !Number.isFinite(patternInterval)) { alert('Every N weeks must be 1 or greater.'); return }
+    const gen = generatePatternDates(patternStart, patternEnd, patternDays, Math.max(1, Math.floor(patternInterval)))
     if (gen.length === 0) { alert('No dates were generated for the selected pattern.'); return }
     setDates(prev => {
       const set = new Set(prev)
@@ -315,11 +316,11 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
           <div className="card">
             <h3 className="section-title">Schedule Future Skips</h3>
             <div className="col" style={{gap:8}}>
-              {/* Pattern generator */}
+              {/* Meeting-style pattern generator */}
               <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
                 <label className="label">Pattern</label>
                 <div className="row" style={{gap:6, flexWrap:'wrap'}}>
-                  {(['M','T','W','R','F','Sa','Su'] as const).map(k=>(
+                  {(['M','T','W','R','F'] as const).map(k=>(
                     <label key={k} className="row" style={{gap:4, alignItems:'center'}}>
                       <input
                         type="checkbox"
@@ -332,17 +333,38 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
                 </div>
               </div>
               <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                <label className="label">Until</label>
+                <label className="label">Start</label>
+                <input type="date" value={patternStart} onChange={e=>setPatternStart(e.target.value)} />
+                <label className="label">End</label>
                 <input type="date" value={patternEnd} onChange={e=>setPatternEnd(e.target.value)} />
-                <label className="row" style={{gap:6, alignItems:'center'}}>
-                  <input
-                    type="checkbox"
-                    checked={patternAlternateWeeks}
-                    onChange={e=>setPatternAlternateWeeks(e.target.checked)}
-                  />
-                  <span className="label">Alternate weeks</span>
-                </label>
-                <button className="btn" onClick={addPatternDates}>Add pattern dates</button>
+                <label className="label">Every</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  style={{width:80}}
+                  value={patternInterval}
+                  onChange={e=>setPatternInterval(Number(e.target.value||'1'))}
+                />
+                <span className="label">week(s)</span>
+                <button className="btn" onClick={addPatternDates}>Add to list</button>
+              </div>
+              {/* Live preview */}
+              <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                {(() => {
+                  const anySelected = ['M','T','W','R','F'].some(k => !!patternDays[k as keyof typeof patternDays])
+                  const preview = (patternStart && patternEnd && anySelected)
+                    ? generatePatternDates(patternStart, patternEnd, patternDays, Math.max(1, Math.floor(patternInterval||1)))
+                    : []
+                  const show = preview.slice(0, 12)
+                  return (
+                    <div className="row" style={{gap:6, flexWrap:'wrap'}}>
+                      <span className="muted">Preview ({preview.length}):</span>
+                      {show.map(d => <span key={d} className="chip">{d}</span>)}
+                      {preview.length > show.length && <span className="muted">…</span>}
+                    </div>
+                  )
+                })()}
               </div>
               <hr />
 
