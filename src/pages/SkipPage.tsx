@@ -34,15 +34,7 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [dateDraft, setDateDraft] = useState<string>('')
   const [dates, setDates] = useState<string[]>([])
   const [note, setNote] = useState<string>('')
-
-  // Upcoming (global) list
-  const [future, setFuture] = useState<Array<{
-    student_id: string
-    student_name: string
-    school: string | null
-    on_date: string
-    note: string | null
-  }>>([])
+  const [future, setFuture] = useState<Array<{ student_id: string; student_name: string; school: string | null; on_date: string; note: string | null }>>([])  
   const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
