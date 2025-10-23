@@ -155,57 +155,68 @@ export default function SkipPage({ students, roster, onSet }: Props) {
     }
   }
 
-  // === NY-safe date helpers ===
+  // === NY-safe civil-day helpers (use NOON UTC to avoid timezone rollbacks) ===
+  const DAY_MS = 86400000
+
   function nyFormatYYYYMMDD(d: Date): string {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
     }).format(d)
   }
-  function nyWeekdayCode(d: Date): 'M'|'T'|'W'|'R'|'F' | null {
+
+  // Build a Date that represents the NY calendar date (ymd) at **noon UTC**
+  function nyNoonUTC(y: number, m: number, d: number): Date {
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0))
+  }
+
+  function parseYMD(ymd: string): Date | null {
+    if (!ymd) return null
+    const [y, m, d] = ymd.split('-').map(Number)
+    if (!y || !m || !d) return null
+    return nyNoonUTC(y, m, d)
+  }
+
+  function nyWeekdayCode(dateNoonUTC: Date): 'M'|'T'|'W'|'R'|'F' | null {
     const wd = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York', weekday: 'short'
-    }).format(d)
+    }).format(dateNoonUTC)
     switch (wd) {
       case 'Mon': return 'M'
       case 'Tue': return 'T'
       case 'Wed': return 'W'
       case 'Thu': return 'R'
       case 'Fri': return 'F'
-      case 'Sat': return null
-      case 'Sun': return null
-      default:    return null
+      default:    return null      // Sat/Sun
     }
   }
-  function startOfWeekMondayNY(d: Date): Date {
-    const ymd = nyFormatYYYYMMDD(d)
-    const [y, m, day] = ymd.split('-').map(Number)
-    const base = new Date(Date.UTC(y, m-1, day)) // midnight of that NY day (UTC clock)
-    const wd = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York', weekday:'short'}).format(base)
-    const map: Record<string, number> = { 'Mon':0,'Tue':1,'Wed':2,'Thu':3,'Fri':4,'Sat':5,'Sun':6 }
-    const off = map[wd] ?? 0
-    return new Date(base.getTime() - off*86400000)
+
+  function startOfWeekMondayNY(dateNoonUTC: Date): Date {
+    const wdShort = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', weekday: 'short'
+    }).format(dateNoonUTC)
+    const offMap: Record<string, number> = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 }
+    const off = offMap[wdShort] ?? 0
+    return new Date(dateNoonUTC.getTime() - off * DAY_MS) // still noon UTC
   }
-  function weekIndexFrom(baseMonday: Date, d: Date): number {
-    const monday = startOfWeekMondayNY(d)
-    return Math.round((monday.getTime() - baseMonday.getTime()) / (7*86400000))
+
+  function weekIndexFrom(baseMondayNoonUTC: Date, dateNoonUTC: Date): number {
+    const monday = startOfWeekMondayNY(dateNoonUTC)
+    const diffDays = Math.floor((monday.getTime() - baseMondayNoonUTC.getTime()) / DAY_MS)
+    // diffDays is multiple of 7 (civil), convert to weeks non-negatively
+    return Math.floor(diffDays / 7)
   }
-  function parseYMD(ymd: string): Date | null {
-    if (!ymd) return null
-    const [y,m,d] = ymd.split('-').map(Number)
-    if (!y || !m || !d) return null
-    return new Date(Date.UTC(y, m-1, d))
-  }
-  // First selected weekday on/after a given date
-  function firstWeekdayOnOrAfter(startNY: Date, code: 'M'|'T'|'W'|'R'|'F'): Date {
+
+  // First selected weekday ON/AFTER a given date
+  function firstWeekdayOnOrAfter(startNoonUTC: Date, code: 'M'|'T'|'W'|'R'|'F'): Date {
     for (let i = 0; i < 7; i++) {
-      const t = new Date(startNY.getTime() + i * 86400000)
+      const t = new Date(startNoonUTC.getTime() + i * DAY_MS)
       const c = nyWeekdayCode(t)
       if (c === code) return t
     }
-    return startNY
+    return startNoonUTC
   }
 
-  // Generate dates with the revised rule:
+  // Generate dates with the **revised rule**:
   // - Start counting FROM Start (today can count)
   // - Anchor parity to the first selected weekday ON/AFTER Start
   // - Include only Mon–Fri on selected weekdays whose week-index matches parity for Every N weeks
@@ -230,12 +241,12 @@ export default function SkipPage({ students, roster, onSet }: Props) {
     })
     if (!firstSelected) return []
 
-    // 2) anchor = Monday of that first-selected week
+    // 2) anchor = Monday of that first-selected week (all at noon UTC)
     const anchorMonday = startOfWeekMondayNY(firstSelected)
 
-    // 3) iterate from Start through End
+    // 3) iterate from Start through End (all at noon UTC)
     const out: string[] = []
-    for (let t = new Date(startNY.getTime()); t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + 86400000)) {
+    for (let t = new Date(startNY.getTime()); t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + DAY_MS)) {
       const code = nyWeekdayCode(t)
       if (!code) continue            // skip weekends
       if (!days[code]) continue
