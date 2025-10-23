@@ -44,6 +44,8 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
   const [patternEnd, setPatternEnd] = useState<string>('')     // YYYY-MM-DD
   // Every N weeks (1 = weekly, 2 = alternate weeks, etc.)
   const [patternInterval, setPatternInterval] = useState<number>(1)
+  // NEW: how to anchor the week-parity for “Every N weeks”
+  const [anchorMode, setAnchorMode] = useState<'start_week'|'per_weekday'>('start_week')
 
   // Display name according to current sort toggle
   const nameFor = (s: StudentRow) =>
@@ -197,32 +199,69 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
     if (!y || !m || !d) return null
     return new Date(Date.UTC(y, m-1, d))
   }
-  function generatePatternDates(startInclusive: string, endInclusive: string, days: {[k:string]:boolean}, everyNWeeks: number): string[] {
+
+  // Find the first occurrence of a given weekday code on/after a NY start date
+  function firstWeekdayOnOrAfter(startNY: Date, code: 'M'|'T'|'W'|'R'|'F'): Date {
+    for (let i = 0; i < 7; i++) {
+      const t = new Date(startNY.getTime() + i * 86400000)
+      const c = nyWeekdayCode(t)
+      if (c === code) return t
+    }
+    return startNY
+  }
+
+  function generatePatternDates(
+    startInclusive: string,
+    endInclusive: string,
+    days: {[k:string]:boolean},
+    everyNWeeks: number,
+    anchor: 'start_week'|'per_weekday'
+  ): string[] {
     if (!startInclusive || !endInclusive) return []
     const startNY = parseYMD(startInclusive)
     const endNY   = parseYMD(endInclusive)
     if (!startNY || !endNY) return []
     if (endNY.getTime() < startNY.getTime()) return []
-    const baseMonday = startOfWeekMondayNY(startNY)
+    const baseMonday = startOfWeekMondayNY(startNY) // used for "start_week"
+
+    // cache first occurrence per selected weekday (for "per_weekday")
+    const firstByCode: Partial<Record<'M'|'T'|'W'|'R'|'F', Date>> = {}
+    if (anchor === 'per_weekday') {
+      (['M','T','W','R','F'] as const).forEach(k=>{
+        if (days[k]) firstByCode[k] = firstWeekdayOnOrAfter(startNY, k)
+      })
+    }
+
     const out: string[] = []
     for (let t = new Date(startNY.getTime()); t.getTime() <= endNY.getTime(); t = new Date(t.getTime() + 86400000)) {
       const code = nyWeekdayCode(t)
-      // Hard-stop weekends (Sat/Sun), even if user managed to toggle a guard-free state.
+      // Hard-stop weekends (Sat/Sun)
       if (!code) continue
       if (!days[code]) continue
-      const w = weekIndexFrom(baseMonday, t)
+
+      const w = (everyNWeeks > 1 && anchor === 'per_weekday' && firstByCode[code])
+        ? weekIndexFrom(startOfWeekMondayNY(firstByCode[code] as Date), t)
+        : weekIndexFrom(baseMonday, t)
+
       if (everyNWeeks > 1 && (w % everyNWeeks) !== 0) continue
       out.push(nyFormatYYYYMMDD(t))
     }
     return out
   }
+
   function addPatternDates() {
     const anySelected = ['M','T','W','R','F'].some(k => !!patternDays[k as keyof typeof patternDays])
     if (!anySelected) { alert('Select at least one weekday.'); return }
     if (!patternStart) { alert('Choose a Start date.'); return }
     if (!patternEnd) { alert('Choose an End date.'); return }
     if (patternInterval < 1 || !Number.isFinite(patternInterval)) { alert('Every N weeks must be 1 or greater.'); return }
-    const gen = generatePatternDates(patternStart, patternEnd, patternDays, Math.max(1, Math.floor(patternInterval)))
+    const gen = generatePatternDates(
+      patternStart,
+      patternEnd,
+      patternDays,
+      Math.max(1, Math.floor(patternInterval)),
+      anchorMode
+    )
     if (gen.length === 0) { alert('No dates were generated for the selected pattern.'); return }
     setDates(prev => {
       const set = new Set(prev)
@@ -345,12 +384,40 @@ export default function SkipPage({ students, roster, onSet, pickedTodayIds }: Pr
                 <span className="label">week(s)</span>
                 <button className="btn" onClick={addPatternDates}>Add to list</button>
               </div>
+
+              {/* NEW: anchor selector */}
+              <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                <label className="label">Anchor by</label>
+                <div className="seg">
+                  <button
+                    className={`seg-btn ${anchorMode==='start_week'?'on':''}`}
+                    onClick={()=>setAnchorMode('start_week')}
+                    title="Parity anchored to Monday of the week containing Start"
+                  >
+                    Start week
+                  </button>
+                  <button
+                    className={`seg-btn ${anchorMode==='per_weekday'?'on':''}`}
+                    onClick={()=>setAnchorMode('per_weekday')}
+                    title="Each weekday uses its first on/after Start for parity"
+                  >
+                    Each weekday
+                  </button>
+                </div>
+              </div>
+
               {/* Live preview */}
               <div className="row" style={{gap:8, alignItems:'center', flexWrap:'wrap'}}>
                 {(() => {
                   const anySelected = ['M','T','W','R','F'].some(k => !!patternDays[k as keyof typeof patternDays])
                   const preview = (patternStart && patternEnd && anySelected)
-                    ? generatePatternDates(patternStart, patternEnd, patternDays, Math.max(1, Math.floor(patternInterval||1)))
+                    ? generatePatternDates(
+                        patternStart,
+                        patternEnd,
+                        patternDays,
+                        Math.max(1, Math.floor(patternInterval||1)),
+                        anchorMode
+                      )
                     : []
                   const show = preview.slice(0, 12)
                   return (
