@@ -198,7 +198,9 @@ export default function App() {
       const verdict = await verifySession()
       if (!mounted) return
       if (verdict !== 'ok') {
-        window.location.replace('/')
+        // No redirect here — just render <Login/> at "/"
+        setIsAuthed(false)
+        setSessionReady(true)
         return
       }
 
