@@ -198,7 +198,7 @@ export default function App() {
       const verdict = await verifySession()
       if (!mounted) return
       if (verdict !== 'ok') {
-        window.location.replace('/login')
+        window.location.replace('/')
         return
       }
 
