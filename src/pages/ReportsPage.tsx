@@ -388,13 +388,30 @@ export default function ReportsPage() {
 
   // Open a minimal printer-friendly page for Daily
   function printDaily() {
-    if (view !== 'daily') return
-    const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
-    const w = window.open('', '_blank', 'noopener,noreferrer')
-    if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site.'); return }
-    w.document.open(); w.document.write(html); w.document.close()
-    try { w.focus() } catch {}
+  if (view !== 'daily') return
+  const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
+
+  // Convert the HTML string to a Blob (pretend PDF for browsers)
+  const blob = new Blob([html], { type: 'text/html' })
+
+  // Create a temporary URL and load it in an iframe, which triggers browser's print UI
+  const url = URL.createObjectURL(blob)
+  const iframe = document.createElement('iframe')
+  iframe.style.display = 'none'
+  iframe.src = url
+  document.body.appendChild(iframe)
+
+  iframe.onload = function () {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    // optional cleanup
+    setTimeout(() => {
+      URL.revokeObjectURL(url)
+      iframe.remove()
+    }, 1000)
   }
+}
+
 
 
 
