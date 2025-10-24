@@ -1,3 +1,4 @@
+// src/App.tsx
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import type { Status, StudentRow } from './types'
@@ -7,7 +8,14 @@ import SkipPage from './pages/SkipPage'
 import ReportsPage from './pages/ReportsPage'
 import Login from './Login'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
-import logo from './assets/sunnydays-logo.png'  
+import logo from './assets/sunnydays-logo.png'
+
+// NEW: stability/auth hardening helpers
+import { verifySession } from './lib/sessionGuard'
+import { enforceStorageVersion } from './lib/storageVersion'
+import { startAuthMonitor } from './lib/authEvents'
+import { startBootstrapWatchdog } from './lib/watchdog'
+import { forceLogout } from './lib/forceLogout'
 
 type Page = 'bus' | 'center' | 'skip' | 'reports'
 type Role = 'admin' | 'staff' | 'driver'
@@ -66,7 +74,6 @@ function todayESTLabel(): string {
   }).format(now)
 }
 
-
 /* === Safe localStorage helpers (never throw) === */
 function lsGet(key: string): string | null {
   try { return localStorage.getItem(key) } catch { return null }
@@ -85,7 +92,6 @@ export default function App() {
   const [rosterTimes, setRosterTimes] = useState<Record<string, string>>({})
 
   const rosterDateEST = todayKeyEST()
-
 
   // Hoisted: run-once-per-day auto-skip guard (DB count + localStorage)
   const autoSkipRanRef = useRef(false)
@@ -121,8 +127,6 @@ export default function App() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-
 
   // Track "picked today" independently of current status.
   // Seed from logs for today, then keep it in sync via handleSetStatus.
@@ -181,47 +185,50 @@ export default function App() {
   // Realtime + light polling fallback
   useRealtimeRoster(rosterDateEST, setRoster, setRosterTimes, refetchTodayRoster)
 
-  // Auth / session bootstrap + once-per-day auto-skip guard
+  /* =========================
+     Auth/session BOOTSTRAP (hardened)
+     ========================= */
   useEffect(() => {
     let mounted = true
     ;(async () => {
-      const { data } = await supabase.auth.getSession()
+      // 0) Clear only our app’s stale storage on version change
+      enforceStorageVersion()
+
+      // 1) Verify session truly valid (not just “some token exists”)
+      const verdict = await verifySession()
       if (!mounted) return
-      setIsAuthed(!!data.session)
+      if (verdict !== 'ok') {
+        window.location.replace('/login')
+        return
+      }
+
+      // 2) We’re actually signed in
+      setIsAuthed(true)
       setSessionReady(true)
+
+      // 3) Start Supabase auth monitor (catches refresh/signout issues)
+      const monitor = startAuthMonitor()
+
+      // 4) Run once-per-day guard now for persisted sessions
+      await runAutoSkipGuard()
+
+      // 5) Start watchdog to detect missing header/logout, self-heal
+      startBootstrapWatchdog()
+
+      // cleanup
+      return () => monitor.stop()
     })()
-
-    
-
-    // auth event hook — run guard on both persisted and fresh sessions
-     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (evt, sess) => {
-       setIsAuthed(!!sess)
-       setSessionReady(true)
-      // Handle both persisted session and fresh sign-in
-       if ((evt === 'INITIAL_SESSION' || evt === 'SIGNED_IN') && sess?.user) {
-
-        await runAutoSkipGuard()
-       }
-     })
-
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-    }
+    return () => { mounted = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Fallback: if auth callback timing doesn’t trigger (rare), run the guard
   // once when the app knows we are authed and session is ready.
   useEffect(() => {
     if (!sessionReady || !isAuthed) return
-    // runAutoSkipGuard has its own once-per-day + per-mount guard
-    runAutoSkipGuard()
-      .catch(() => {
-        // swallow; guard already logs non-fatals
-      })
+    runAutoSkipGuard().catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionReady, isAuthed, rosterDateEST])
-
 
   useEffect(() => {
     if (!isAuthed) return
@@ -330,25 +337,16 @@ export default function App() {
       meta.pickupPerson = meta.override
     }
 
-
-   // === UPDATED POLICY: allow admin override; only require a non-empty pickup name ===
+    // === UPDATED POLICY: allow admin override; only require a non-empty pickup name ===
     // To keep the modal open on error, throw (reject) instead of alerting.
     if (st === 'checked') {
       const person = String(meta?.pickupPerson ?? '').trim()
       if (!person) {
         const err: any = new Error('Please select or enter a pickup person.')
-       err.code = 'PICKUP_REQUIRED'
+        err.code = 'PICKUP_REQUIRED'
         throw err
       }
-      // NOTE: we no longer enforce membership in the student's approved list here.
-      // If desired, you can still record that checkout was an override:
-      // meta.unapprovedOverride = !approved.includes(person)  (not used by UI yet)
     }
-
-
-
-
-
 
     const isUndo     = ORDER[st] < ORDER[prevStatus]
     const enrichedMeta = {
@@ -431,8 +429,7 @@ export default function App() {
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut()
-    setIsAuthed(false)
+    await forceLogout()
   }
 
   const buildLabel = useMemo(() => 'build: v1.7+toolbar', [])
@@ -458,7 +455,11 @@ export default function App() {
   return (
     <div className="container">
       {/* Top nav + date + logout */}
-      <div className="row wrap" style={{ marginBottom: 10, alignItems: 'center' }}>
+      <div
+        className="row wrap"
+        data-app-header
+        style={{ marginBottom: 10, alignItems: 'center' }}
+      >
         <div className="row gap">
           {/* Brand */}
           <div className="brand">
@@ -482,7 +483,14 @@ export default function App() {
 
         <div className="row gap" style={{ marginLeft: 'auto', alignItems: 'center' }}>
           <span className="chip">{todayESTLabel()}</span>
-          <button className="btn" onClick={handleLogout}>Logout</button>
+          <button
+            className="btn"
+            data-logout-btn
+            onMouseDown={(e)=>e.preventDefault()}
+            onClick={handleLogout}
+          >
+            Logout
+          </button>
         </div>
       </div>
 
