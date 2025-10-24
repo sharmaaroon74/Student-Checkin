@@ -11,13 +11,13 @@ import { supabase } from './supabase'
 export function startAuthMonitor() {
   const sub = supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_OUT') {
-      window.location.replace('/login')
+      window.location.replace('/')
       return
     }
 
     // If we booted without a session (some edge cases), treat as signed out
     if (event === 'INITIAL_SESSION' && !session) {
-      window.location.replace('/login')
+      window.location.replace('/')
       return
     }
 
@@ -26,7 +26,7 @@ export function startAuthMonitor() {
       const { data, error } = await supabase.auth.getUser()
       if (error || !data?.user) {
         try { await supabase.auth.signOut({ scope: 'local' }) } catch {}
-        window.location.replace('/login')
+        window.location.replace('/')
       }
     }
   })
@@ -36,7 +36,7 @@ export function startAuthMonitor() {
     const { data, error } = await supabase.auth.getSession()
     if (error || !data?.session) {
       try { await supabase.auth.signOut({ scope: 'local' }) } catch {}
-      window.location.replace('/login')
+      window.location.replace('/')
     }
   }, 10 * 60 * 1000) // every 10 minutes
 
