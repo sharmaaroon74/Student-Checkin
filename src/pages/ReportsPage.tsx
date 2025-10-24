@@ -53,6 +53,89 @@ function estLocalToUtcIso(local: string): string | null {
   return new Date(utcMs).toISOString()
 }
 
+// Printer-friendly Daily HTML (top-level named export so tests can import)
+export function buildDailyPrintHtml(
+  dateStrForHeader: string,
+  rowsForPrint: Row[],
+  nameFormatter: (full: string) => string
+): string {
+  const fmt = (iso?: string | null) =>
+    iso
+      ? new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York',
+          hour: 'numeric',
+          minute: '2-digit'
+        }).format(new Date(iso))
+      : '';
+
+  const header =
+    '<tr>' +
+    '<th>Student Name</th>' +
+    '<th>School</th>' +
+    '<th>School Pickup Time</th>' +
+    '<th>Sunny Days Arrival Time</th>' +
+    '<th>Checkout Time</th>' +
+    '<th>Picked Up By</th>' +
+    '<th>Time @ Sunny Days</th>' +
+    '<th>Current Status</th>' +
+    '</tr>';
+
+  const body =
+    rowsForPrint.length === 0
+      ? '<tr><td colspan="8" style="text-align:center;padding:8px;">No rows for this date.</td></tr>'
+      : rowsForPrint
+          .map((r: any) => {
+            const total = r.__total_str ?? '';
+            const status = String(r.final_status || '').toLowerCase() === 'checked'
+              ? 'checked-out'
+              : (r.final_status || '');
+            return (
+              '<tr>' +
+              `<td>${nameFormatter(r.student_name)}</td>` +
+              `<td>${r.school ?? ''}</td>` +
+              `<td>${fmt(r.picked_time)}</td>` +
+              `<td>${fmt(r.arrived_time)}</td>` +
+              `<td>${fmt(r.checked_time)}</td>` +
+              `<td>${r.pickup_person ?? ''}</td>` +
+              `<td>${total}</td>` +
+              `<td>${status}</td>` +
+             '</tr>'
+            );
+          })
+          .join('');
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Daily Report – ${dateStrForHeader}</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 16px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      .hdr { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 4px; }
+      .meta { text-align: center; font-size: 12px; margin-bottom: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border: 1px solid #000; padding: 4px 6px; vertical-align: top; }
+      th { text-align: left; }
+      @page { margin: 10mm; }
+      @media print { body { margin: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="hdr">Sunny Days – Daily Report</div>
+    <div class="meta">Date: ${dateStrForHeader}</div>
+    <table>
+      <thead>${header}</thead>
+      <tbody>${body}</tbody>
+    </table>
+    <script>
+      window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 0); });
+    </script>
+  </body>
+</html>`;
+}
+
+
 export default function ReportsPage() {
   // tabs
   const [view, setView] = useState<'daily'|'approved'|'history'>('daily')
@@ -303,6 +386,21 @@ export default function ReportsPage() {
     a.remove(); URL.revokeObjectURL(url)
   }
 
+  // Open a minimal printer-friendly page for Daily
+  function printDaily() {
+    if (view !== 'daily') return
+    const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
+    const w = window.open('', '_blank', 'noopener,noreferrer')
+    if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site.'); return }
+    w.document.open(); w.document.write(html); w.document.close()
+    try { w.focus() } catch {}
+  }
+
+
+
+
+
+
   const fmtCell = (iso?: string|null) =>
     iso ? new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'numeric', minute:'2-digit' }).format(new Date(iso)) : ''
 
@@ -363,7 +461,20 @@ export default function ReportsPage() {
               onClick={exportCSV}
             >
               ⬇️ CSV
-            </button>          </div>
+            </button>    
+            <button
+              className="btn"
+              style={{padding:'6px 10px'}}
+              title="Printer-friendly"
+              aria-label="Printer-friendly Daily Report"
+              data-testid="btn-print-daily"
+              onClick={printDaily}
+            >
+              🖨️ Print
+            </button>           
+ 
+            
+                  </div>
         )}
       </div>{/* /toolbar */}
 
