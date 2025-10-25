@@ -143,24 +143,21 @@ export default function ReportsPage() {
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
 
-  // 4+ HOURS (range) tab state
-  // Defaults: both From and To = today
+  // 4+ HOURS (range) tab state — defaults to today
   const [rangeStart, setRangeStart] = useState<string>(estDateString(new Date()))
   const [rangeEnd, setRangeEnd] = useState<string>(estDateString(new Date()))
-  // Dynamic date columns (YYYY-MM-DD) and pivoted rows (one per student)
   const [hoursCols, setHoursCols] = useState<string[]>([])
   const [hoursRows, setHoursRows] = useState<Array<{
     student_id: string
     student_name: string
     school: string
-    totals: Record<string, string> // key: roster_date (YYYY-MM-DD), val: "Hh Mm" or ''
+    totals: Record<string, string>
   }>>([])
   const [hoursLoading, setHoursLoading] = useState(false)
 
   // Display name in table according to current sort toggle
   function fmtStudentName(full: string): string {
     if (sortBy === 'first') return full
-    // For last-name display: "Last, First [Middles]" while being robust to parentheses
     const noParen = full.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim()
     const parts = noParen.split(' ')
     if (parts.length < 2) return full
@@ -178,7 +175,7 @@ export default function ReportsPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
 
-  // Ensure rows exist for Approved tab too (so you don't have to open Daily first)
+  // Ensure rows exist for Approved tab too
   useEffect(() => {
     if (view !== 'approved') return
     let alive = true
@@ -403,53 +400,46 @@ export default function ReportsPage() {
   function printDaily() {
     if (view !== 'daily') return
     const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
-
-    // Convert the HTML string to a Blob (pretend PDF for browsers)
     const blob = new Blob([html], { type: 'text/html' })
-
-    // Create a temporary URL and load it in an iframe, which triggers browser's print UI
     const url = URL.createObjectURL(blob)
     const iframe = document.createElement('iframe')
     iframe.style.display = 'none'
     iframe.src = url
     document.body.appendChild(iframe)
-
     iframe.onload = function () {
       iframe.contentWindow?.focus()
       iframe.contentWindow?.print()
-      // optional cleanup
-      setTimeout(() => {
-        URL.revokeObjectURL(url)
-        iframe.remove()
-      }, 1000)
+      setTimeout(() => { URL.revokeObjectURL(url); iframe.remove() }, 1000)
     }
   }
 
-  // utility: list of YYYY-MM-DD between start and end (inclusive), in EST
+  // === Helpers for the Hours report ===
+
+  // Build inclusive list of YYYY-MM-DD using UTC-noon ticks (DST-safe)
   function buildDateList(start: string, end: string): string[] {
     if (!start || !end) return []
-    const s = new Date(start + 'T00:00:00-05:00') // EST base; browser will normalize DST
-    const e = new Date(end + 'T00:00:00-05:00')
+    const [sy, sm, sd] = start.split('-').map(Number)
+    const [ey, em, ed] = end.split('-').map(Number)
+    let cur = Date.UTC(sy, (sm ?? 1) - 1, sd ?? 1, 12, 0, 0)
+    const endUtc = Date.UTC(ey, (em ?? 1) - 1, ed ?? 1, 12, 0, 0)
     const out: string[] = []
-    // if start > end, return empty
-    if (s.getTime() > e.getTime()) return out
-    const cur = new Date(s)
-    while (cur.getTime() <= e.getTime()) {
-      out.push(estDateString(cur))
-      cur.setDate(cur.getDate() + 1)
+    if (cur > endUtc) return out
+    while (cur <= endUtc) {
+      out.push(estDateString(new Date(cur)))
+      cur += 24 * 60 * 60 * 1000
     }
     return out
   }
 
-  // mm/dd for headers (rendered in EST)
+  // mm/dd view label (rendered in EST)
   function mmdd(yyyy_mm_dd: string): string {
     const [y, m, d] = yyyy_mm_dd.split('-').map(Number)
-    const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0)) // noon UTC to avoid DST edge
+    const utcNoon = Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0)
     return new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York',
       month: '2-digit',
       day: '2-digit'
-    }).format(dt)
+    }).format(new Date(utcNoon))
   }
 
   // Run the 4+ Hours report over a date range → pivoted table
@@ -515,7 +505,6 @@ export default function ReportsPage() {
       const fourHoursMs = 4 * 60 * 60 * 1000
 
       for (const colDate of cols) {
-        // iterate all students that have a start for this date
         for (const [k, startIso] of startMap.entries()) {
           const [d, sid] = k.split('|')
           if (d !== colDate) continue
@@ -544,7 +533,6 @@ export default function ReportsPage() {
         }
       }
 
-      // Only include students that have at least one qualifying day (≥4h)
       const out = Array.from(rowMap.values())
         .filter(r => Object.keys(r.totals).length > 0)
         .sort((a,b)=> a.student_name.localeCompare(b.student_name))
@@ -556,6 +544,75 @@ export default function ReportsPage() {
       setHoursCols([])
     } finally {
       setHoursLoading(false)
+    }
+  }
+
+  // Printer-friendly HTML for the Hours report
+  function buildHoursPrintHtml(
+    startStr: string,
+    endStr: string,
+    cols: string[],
+    rows: Array<{student_id:string, student_name:string, school:string, totals:Record<string,string>}>
+  ): string {
+    const headerCells =
+      '<tr><th>Student Name</th><th>School</th>' +
+      cols.map(c => `<th>${mmdd(c)}</th>`).join('') +
+      '</tr>'
+
+    const bodyRows = rows.length === 0
+      ? '<tr><td colspan="' + (2+cols.length) + '" style="text-align:center;padding:8px;">No rows.</td></tr>'
+      : rows.map(r =>
+          '<tr>' +
+            `<td>${r.student_name}</td>` +
+            `<td>${r.school}</td>` +
+            cols.map(c => `<td>${r.totals[c] || ''}</td>`).join('') +
+          '</tr>'
+        ).join('')
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>4+ Hours Report – ${startStr} to ${endStr}</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 16px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      .hdr { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 4px; }
+      .meta { text-align: center; font-size: 12px; margin-bottom: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border: 1px solid #000; padding: 4px 6px; vertical-align: top; }
+      th { text-align: left; }
+      @page { margin: 10mm; }
+      @media print { body { margin: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="hdr">Sunny Days – 4+ Hours Report</div>
+    <div class="meta">Range: ${startStr} → ${endStr}</div>
+    <table>
+      <thead>${headerCells}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <script>
+      window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 0); });
+    </script>
+  </body>
+</html>`
+  }
+
+  function printHours() {
+    if (view !== 'hours') return
+    const html = buildHoursPrintHtml(rangeStart, rangeEnd, hoursCols, hoursRows)
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    iframe.src = url
+    document.body.appendChild(iframe)
+    iframe.onload = function () {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      setTimeout(() => { URL.revokeObjectURL(url); iframe.remove() }, 1000)
     }
   }
 
@@ -576,7 +633,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Row 2: Daily-only controls (all on one line with school filters, plus Download) */}
+        {/* Row 2: Daily-only controls */}
         {view==='daily' && (
           <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
             <label className="label">Date</label>
@@ -599,7 +656,6 @@ export default function ReportsPage() {
               ))}
             </div>
 
-            {/* moved right next to school filters */}
             <label className="row" style={{gap:6}}>
               <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
               <span className="label">Hide no activity</span>
@@ -612,31 +668,12 @@ export default function ReportsPage() {
               <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
               <span className="label">Only show ≥ 4 hours</span>
             </label>
-            <button
-              className="btn"
-              style={{padding:'6px 10px'}}
-              title="Download CSV"
-              aria-label="Download CSV"
-              onClick={exportCSV}
-            >
-              ⬇️ CSV
-            </button>    
-            <button
-              className="btn"
-              style={{padding:'6px 10px'}}
-              title="Printer-friendly"
-              aria-label="Printer-friendly Daily Report"
-              data-testid="btn-print-daily"
-              onClick={printDaily}
-            >
-              🖨️ Print
-            </button>           
- 
-            
-                  </div>
+            <button className="btn" style={{padding:'6px 10px'}} title="Download CSV" aria-label="Download CSV" onClick={exportCSV}>⬇️ CSV</button>
+            <button className="btn" style={{padding:'6px 10px'}} title="Printer-friendly" aria-label="Printer-friendly Daily Report" data-testid="btn-print-daily" onClick={printDaily}>🖨️ Print</button>
+          </div>
         )}
 
-        {/* Row 2 (Hours): simple range controls */}
+        {/* Row 2 (Hours): range controls + Print */}
         {view==='hours' && (
           <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
             <label className="label">From</label>
@@ -644,6 +681,7 @@ export default function ReportsPage() {
             <label className="label">To</label>
             <input type="date" value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} />
             <button className="btn" onClick={runHours} disabled={hoursLoading}>{hoursLoading?'Loading…':'Run'}</button>
+            <button className="btn" onClick={printHours} disabled={hoursCols.length===0 || hoursRows.length===0}>🖨️ Print</button>
           </div>
         )}
       </div>{/* /toolbar */}
@@ -800,15 +838,12 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         ? { approved_pickups: JSON.stringify(clean) }
         : { approved_pickups: clean }
 
-    // Persist via RPC (SECURITY DEFINER) when present.
-    // Falls back to a direct UPDATE if RPC is missing (older DB) or blocked.
     const { data, error } = await supabase.rpc(
       'rpc_update_student_approved_pickups',
       { p_student_id: row.student_id, p_pickups: clean }
     )
     if (error) {
       console.warn('[approved_pickups save] RPC failed, falling back to direct update', error)
-      // Use the already-normalized payload (stringified if legacy string-column, array otherwise)
       const { data: upd, error: uerr } = await supabase
         .from('students')
         .update(payload)
@@ -953,10 +988,9 @@ function StudentHistoryBlock() {
   async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
     try {
       if (action === 'checked') {
-        // Merge pickupTime into meta via RPC (server-side), else fallback to direct UPDATE
         const { data, error } = await supabase.rpc('rpc_set_log_pickup_time', {
           p_log_id: logId,
-          p_pickup_time: local, // 'YYYY-MM-DDTHH:mm' (EST wall clock string)
+          p_pickup_time: local,
         })
         if (error) {
           console.warn('[history] rpc_set_log_pickup_time failed, falling back to direct update', error)
@@ -970,7 +1004,6 @@ function StudentHistoryBlock() {
           if (uerr || !upd) throw new Error('No row updated (RPC missing/RLS?)')
         }
       } else {
-        // picked/arrived: set the at timestamp via RPC, else fallback to direct UPDATE
         const iso = estLocalToUtcIso(local) ?? new Date().toISOString()
         const { data, error } = await supabase.rpc('rpc_set_log_at', {
           p_log_id: logId,
@@ -1006,7 +1039,7 @@ function StudentHistoryBlock() {
           {students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <label className="label">From</label>
-        <input type="date" value={start} onChange={e=>setStart(e.target.value)} />
+        <input type="date" value={end} onChange={e=>setStart(e.target.value)} />
         <label className="label">To</label>
         <input type="date" value={end} onChange={e=>setEnd(e.target.value)} />
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
