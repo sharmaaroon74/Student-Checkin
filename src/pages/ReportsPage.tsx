@@ -1,4 +1,4 @@
-// src/pages/ReportsPage.tsx
+// src/pages/ReportsPage.tsx 
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -138,11 +138,20 @@ export function buildDailyPrintHtml(
 
 export default function ReportsPage() {
   // tabs
-  const [view, setView] = useState<'daily'|'approved'|'history'>('daily')
+  const [view, setView] = useState<'daily'|'hours'|'approved'|'history'>('daily')
 
   // DAILY tab state
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
+
+  // 4+ HOURS (range) tab state
+  const [rangeStart, setRangeStart] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate()-7)
+    return estDateString(d)
+  })
+  const [rangeEnd, setRangeEnd] = useState<string>(estDateString(new Date()))
+  const [hoursRows, setHoursRows] = useState<Array<{student_id:string, student_name:string, school:string, roster_date:string, total_ms:number, total_str:string}>>([])
+  const [hoursLoading, setHoursLoading] = useState(false)
 
   // Display name in table according to current sort toggle
   function fmtStudentName(full: string): string {
@@ -412,11 +421,92 @@ export default function ReportsPage() {
   }
 }
 
+  // Run the 4+ Hours report over a date range
+  async function runHours() {
+    setHoursLoading(true)
+    try {
+      // Fetch active students for name/school lookup
+      const { data: students, error: sErr } = await supabase
+        .from('students')
+        .select('id, first_name, last_name, school, active')
+        .eq('active', true)
+      if (sErr) throw sErr
+      const nameById = new Map<string,string>()
+      const schoolById = new Map<string,string>()
+      for (const st of students || []) {
+        nameById.set(st.id as string, `${st.first_name} ${st.last_name}`)
+        schoolById.set(st.id as string, (st.school as string) ?? '')
+      }
 
+      // Pull logs in range
+      const { data: logs, error: lErr } = await supabase
+        .from('logs')
+        .select('student_id, roster_date, action, at, meta')
+        .gte('roster_date', rangeStart)
+        .lte('roster_date', rangeEnd)
+        .in('action', ['picked','arrived','checked'])
+      if (lErr) throw lErr
 
+      // Group earliest start (picked/arrived) and earliest checkout (checked/pickupTime) per (student, date)
+      const startMap = new Map<string,string>()
+      const endMap = new Map<string,string>()
+      const keyOf = (sid:string, d:string)=>`${d}|${sid}`
+      for (const lg of logs || []) {
+        const sid = lg.student_id as string
+        const d = lg.roster_date as string
+        const act = lg.action as string
+        const at = lg.at as string
+        const meta = (lg as any).meta || {}
+        const effectiveAt = (act==='checked' && meta && meta.pickupTime)
+          ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
+          : at
+        const k = keyOf(sid, d)
+        if (act==='picked' || act==='arrived') {
+          const prev = startMap.get(k)
+          if (!prev || new Date(at) < new Date(prev)) startMap.set(k, at)
+        }
+        if (act==='checked') {
+          const prev = endMap.get(k)
+          if (!prev || new Date(effectiveAt) < new Date(prev)) endMap.set(k, effectiveAt)
+        }
+      }
 
+      const out: Array<{student_id:string, student_name:string, school:string, roster_date:string, total_ms:number, total_str:string}> = []
+      const fourHoursMs = 4 * 60 * 60 * 1000
+      for (const [k, startIso] of startMap.entries()) {
+        const endIso = endMap.get(k)
+        if (!endIso) continue
+        const t0 = new Date(startIso).getTime()
+        const t1 = new Date(endIso).getTime()
+        if (Number.isNaN(t0) || Number.isNaN(t1) || t1 <= t0) continue
+        const total = t1 - t0
+        if (total < fourHoursMs) continue
+        const [d, sid] = k.split('|')
+        const mins = Math.round(total / 60000)
+        const h = Math.floor(mins / 60)
+        const m = mins % 60
+        out.push({
+          student_id: sid,
+          student_name: nameById.get(sid) || sid,
+          school: schoolById.get(sid) || '',
+          roster_date: d,
+          total_ms: total,
+          total_str: `${h}h ${m}m`
+        })
+      }
 
-
+      // Sort by date, then student name
+      out.sort((a,b)=> a.roster_date===b.roster_date
+        ? a.student_name.localeCompare(b.student_name)
+        : a.roster_date.localeCompare(b.roster_date))
+      setHoursRows(out)
+    } catch (e) {
+      console.error('[hours] fetch failed', e)
+      setHoursRows([])
+    } finally {
+      setHoursLoading(false)
+    }
+  }
 
   const fmtCell = (iso?: string|null) =>
     iso ? new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'numeric', minute:'2-digit' }).format(new Date(iso)) : ''
@@ -429,6 +519,7 @@ export default function ReportsPage() {
         <div className="row wrap gap" style={{alignItems:'center'}}>
           <div className="seg">
             <button className={`seg-btn ${view==='daily'?'on':''}`} onClick={()=>setView('daily')}>Daily</button>
+            <button className={`seg-btn ${view==='hours'?'on':''}`} onClick={()=>setView('hours')}>4+ Hours</button>
             <button className={`seg-btn ${view==='approved'?'on':''}`} onClick={()=>setView('approved')}>Approved Pickups</button>
             <button className={`seg-btn ${view==='history'?'on':''}`} onClick={()=>setView('history')}>Student History</button>
           </div>
@@ -493,6 +584,17 @@ export default function ReportsPage() {
             
                   </div>
         )}
+
+        {/* Row 2 (Hours): simple range controls */}
+        {view==='hours' && (
+          <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
+            <label className="label">From</label>
+            <input type="date" value={rangeEnd} onChange={e=>setRangeStart(e.target.value)} />
+            <label className="label">To</label>
+            <input type="date" value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} />
+            <button className="btn" onClick={runHours} disabled={hoursLoading}>{hoursLoading?'Loading…':'Run'}</button>
+          </div>
+        )}
       </div>{/* /toolbar */}
 
       {/* DAILY VIEW */}
@@ -532,6 +634,40 @@ export default function ReportsPage() {
                           {String(r.final_status||'').toLowerCase()==='checked' ? 'checked-out' : (r.final_status || '')}
                         </span>
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 4+ HOURS RANGE VIEW */}
+      {view === 'hours' && (
+        <div className="card report-table-card">
+          {hoursLoading ? (
+            <div className="muted">Loading…</div>
+          ) : hoursRows.length === 0 ? (
+            <div className="muted" style={{padding:'8px 2px'}}>No rows.</div>
+          ) : (
+            <div className="report-table-scroll" data-testid="hours-table-scroll">
+              <table className="report-table">
+                <thead className="report-thead">
+                  <tr>
+                    <th className="col-name">Student Name</th>
+                    <th className="col-school">School</th>
+                    <th className="col-school">Date</th>
+                    <th className="col-time">Time @ Sunny Days</th>
+                  </tr>
+                </thead>
+                <tbody className="report-tbody">
+                  {hoursRows.map((r) => (
+                    <tr key={`${r.student_id}-${r.roster_date}`}>
+                      <td className="cell-name">{r.student_name}</td>
+                      <td className="cell-school">{r.school}</td>
+                      <td className="cell-school">{r.roster_date}</td>
+                      <td className="cell-time">{r.total_str}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -817,7 +953,7 @@ function StudentHistoryBlock() {
           {students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <label className="label">From</label>
-        <input type="date" value={start} onChange={e=>setStart(e.target.value)} />
+        <input type="date" value={end} onChange={e=>setStart(e.target.value)} />
         <label className="label">To</label>
         <input type="date" value={end} onChange={e=>setEnd(e.target.value)} />
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
