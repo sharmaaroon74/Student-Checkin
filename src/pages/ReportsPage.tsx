@@ -135,7 +135,6 @@ export function buildDailyPrintHtml(
 </html>`;
 }
 
-
 export default function ReportsPage() {
   // tabs
   const [view, setView] = useState<'daily'|'hours'|'approved'|'history'>('daily')
@@ -145,12 +144,17 @@ export default function ReportsPage() {
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
 
   // 4+ HOURS (range) tab state
-  const [rangeStart, setRangeStart] = useState<string>(() => {
-    const d = new Date(); d.setDate(d.getDate()-7)
-    return estDateString(d)
-  })
+  // Defaults: both From and To = today
+  const [rangeStart, setRangeStart] = useState<string>(estDateString(new Date()))
   const [rangeEnd, setRangeEnd] = useState<string>(estDateString(new Date()))
-  const [hoursRows, setHoursRows] = useState<Array<{student_id:string, student_name:string, school:string, roster_date:string, total_ms:number, total_str:string}>>([])
+  // Dynamic date columns (YYYY-MM-DD) and pivoted rows (one per student)
+  const [hoursCols, setHoursCols] = useState<string[]>([])
+  const [hoursRows, setHoursRows] = useState<Array<{
+    student_id: string
+    student_name: string
+    school: string
+    totals: Record<string, string> // key: roster_date (YYYY-MM-DD), val: "Hh Mm" or ''
+  }>>([])
   const [hoursLoading, setHoursLoading] = useState(false)
 
   // Display name in table according to current sort toggle
@@ -397,34 +401,69 @@ export default function ReportsPage() {
 
   // Open a minimal printer-friendly page for Daily
   function printDaily() {
-  if (view !== 'daily') return
-  const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
+    if (view !== 'daily') return
+    const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
 
-  // Convert the HTML string to a Blob (pretend PDF for browsers)
-  const blob = new Blob([html], { type: 'text/html' })
+    // Convert the HTML string to a Blob (pretend PDF for browsers)
+    const blob = new Blob([html], { type: 'text/html' })
 
-  // Create a temporary URL and load it in an iframe, which triggers browser's print UI
-  const url = URL.createObjectURL(blob)
-  const iframe = document.createElement('iframe')
-  iframe.style.display = 'none'
-  iframe.src = url
-  document.body.appendChild(iframe)
+    // Create a temporary URL and load it in an iframe, which triggers browser's print UI
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    iframe.src = url
+    document.body.appendChild(iframe)
 
-  iframe.onload = function () {
-    iframe.contentWindow?.focus()
-    iframe.contentWindow?.print()
-    // optional cleanup
-    setTimeout(() => {
-      URL.revokeObjectURL(url)
-      iframe.remove()
-    }, 1000)
+    iframe.onload = function () {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      // optional cleanup
+      setTimeout(() => {
+        URL.revokeObjectURL(url)
+        iframe.remove()
+      }, 1000)
+    }
   }
-}
 
-  // Run the 4+ Hours report over a date range
+  // utility: list of YYYY-MM-DD between start and end (inclusive), in EST
+  function buildDateList(start: string, end: string): string[] {
+    if (!start || !end) return []
+    const s = new Date(start + 'T00:00:00-05:00') // EST base; browser will normalize DST
+    const e = new Date(end + 'T00:00:00-05:00')
+    const out: string[] = []
+    // if start > end, return empty
+    if (s.getTime() > e.getTime()) return out
+    const cur = new Date(s)
+    while (cur.getTime() <= e.getTime()) {
+      out.push(estDateString(cur))
+      cur.setDate(cur.getDate() + 1)
+    }
+    return out
+  }
+
+  // mm/dd for headers (rendered in EST)
+  function mmdd(yyyy_mm_dd: string): string {
+    const [y, m, d] = yyyy_mm_dd.split('-').map(Number)
+    const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0)) // noon UTC to avoid DST edge
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(dt)
+  }
+
+  // Run the 4+ Hours report over a date range → pivoted table
   async function runHours() {
     setHoursLoading(true)
     try {
+      const cols = buildDateList(rangeStart, rangeEnd)
+      setHoursCols(cols)
+
+      if (cols.length === 0) {
+        setHoursRows([])
+        return
+      }
+
       // Fetch active students for name/school lookup
       const { data: students, error: sErr } = await supabase
         .from('students')
@@ -447,7 +486,7 @@ export default function ReportsPage() {
         .in('action', ['picked','arrived','checked'])
       if (lErr) throw lErr
 
-      // Group earliest start (picked/arrived) and earliest checkout (checked/pickupTime) per (student, date)
+      // For each (student, date): earliest start (picked/arrived) and earliest checkout (checked/pickupTime)
       const startMap = new Map<string,string>()
       const endMap = new Map<string,string>()
       const keyOf = (sid:string, d:string)=>`${d}|${sid}`
@@ -471,38 +510,50 @@ export default function ReportsPage() {
         }
       }
 
-      const out: Array<{student_id:string, student_name:string, school:string, roster_date:string, total_ms:number, total_str:string}> = []
+      // Build pivot rows per student with only ≥4h totals populated
+      const rowMap = new Map<string, { student_id:string, student_name:string, school:string, totals: Record<string,string> }>()
       const fourHoursMs = 4 * 60 * 60 * 1000
-      for (const [k, startIso] of startMap.entries()) {
-        const endIso = endMap.get(k)
-        if (!endIso) continue
-        const t0 = new Date(startIso).getTime()
-        const t1 = new Date(endIso).getTime()
-        if (Number.isNaN(t0) || Number.isNaN(t1) || t1 <= t0) continue
-        const total = t1 - t0
-        if (total < fourHoursMs) continue
-        const [d, sid] = k.split('|')
-        const mins = Math.round(total / 60000)
-        const h = Math.floor(mins / 60)
-        const m = mins % 60
-        out.push({
-          student_id: sid,
-          student_name: nameById.get(sid) || sid,
-          school: schoolById.get(sid) || '',
-          roster_date: d,
-          total_ms: total,
-          total_str: `${h}h ${m}m`
-        })
+
+      for (const colDate of cols) {
+        // iterate all students that have a start for this date
+        for (const [k, startIso] of startMap.entries()) {
+          const [d, sid] = k.split('|')
+          if (d !== colDate) continue
+          const endIso = endMap.get(k)
+          if (!endIso) continue
+          const t0 = new Date(startIso).getTime()
+          const t1 = new Date(endIso).getTime()
+          if (Number.isNaN(t0) || Number.isNaN(t1) || t1 <= t0) continue
+          const total = t1 - t0
+          if (total < fourHoursMs) continue
+
+          const mins = Math.round(total / 60000)
+          const h = Math.floor(mins / 60)
+          const m = mins % 60
+          const pretty = `${h}h ${m}m`
+
+          if (!rowMap.has(sid)) {
+            rowMap.set(sid, {
+              student_id: sid,
+              student_name: nameById.get(sid) || sid,
+              school: schoolById.get(sid) || '',
+              totals: {}
+            })
+          }
+          rowMap.get(sid)!.totals[colDate] = pretty
+        }
       }
 
-      // Sort by date, then student name
-      out.sort((a,b)=> a.roster_date===b.roster_date
-        ? a.student_name.localeCompare(b.student_name)
-        : a.roster_date.localeCompare(b.roster_date))
+      // Only include students that have at least one qualifying day (≥4h)
+      const out = Array.from(rowMap.values())
+        .filter(r => Object.keys(r.totals).length > 0)
+        .sort((a,b)=> a.student_name.localeCompare(b.student_name))
+
       setHoursRows(out)
     } catch (e) {
       console.error('[hours] fetch failed', e)
       setHoursRows([])
+      setHoursCols([])
     } finally {
       setHoursLoading(false)
     }
@@ -589,7 +640,7 @@ export default function ReportsPage() {
         {view==='hours' && (
           <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
             <label className="label">From</label>
-            <input type="date" value={rangeEnd} onChange={e=>setRangeStart(e.target.value)} />
+            <input type="date" value={rangeStart} onChange={e=>setRangeStart(e.target.value)} />
             <label className="label">To</label>
             <input type="date" value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} />
             <button className="btn" onClick={runHours} disabled={hoursLoading}>{hoursLoading?'Loading…':'Run'}</button>
@@ -643,7 +694,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* 4+ HOURS RANGE VIEW */}
+      {/* 4+ HOURS RANGE VIEW (pivot) */}
       {view === 'hours' && (
         <div className="card report-table-card">
           {hoursLoading ? (
@@ -657,17 +708,19 @@ export default function ReportsPage() {
                   <tr>
                     <th className="col-name">Student Name</th>
                     <th className="col-school">School</th>
-                    <th className="col-school">Date</th>
-                    <th className="col-time">Time @ Sunny Days</th>
+                    {hoursCols.map(d => (
+                      <th key={d} className="col-time">{mmdd(d)}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="report-tbody">
                   {hoursRows.map((r) => (
-                    <tr key={`${r.student_id}-${r.roster_date}`}>
+                    <tr key={r.student_id}>
                       <td className="cell-name">{r.student_name}</td>
                       <td className="cell-school">{r.school}</td>
-                      <td className="cell-school">{r.roster_date}</td>
-                      <td className="cell-time">{r.total_str}</td>
+                      {hoursCols.map(d => (
+                        <td key={d} className="cell-time">{r.totals[d] || ''}</td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -953,7 +1006,7 @@ function StudentHistoryBlock() {
           {students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <label className="label">From</label>
-        <input type="date" value={end} onChange={e=>setStart(e.target.value)} />
+        <input type="date" value={start} onChange={e=>setStart(e.target.value)} />
         <label className="label">To</label>
         <input type="date" value={end} onChange={e=>setEnd(e.target.value)} />
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
