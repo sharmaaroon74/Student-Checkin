@@ -944,14 +944,10 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
 
 function StudentHistoryBlock() {
   const [studentId, setStudentId] = React.useState<string>('')
-  const [start, setStart] = React.useState<string>(() => {
-    const d = new Date(); d.setDate(d.getDate()-7)
-    return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)
-  })
-  const [end, setEnd] = React.useState<string>(() => {
-    const d = new Date()
-    return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)
-  })
+// Default From/To to today's date (EST)
+  const [start, setStart] = React.useState<string>(() => estDateString(new Date()))
+  const [end, setEnd]   = React.useState<string>(() => estDateString(new Date()))
+  
   const [loading, setLoading] = React.useState(false)
   const [rows, setRows] = React.useState<Array<{id:number, roster_date:string, action:string, at:string, meta:any, student_name:string}>>([])
   const [students, setStudents] = React.useState<Array<{id:string, name:string}>>([])
@@ -976,7 +972,18 @@ function StudentHistoryBlock() {
         .order('roster_date', { ascending: true })
         .order('at', { ascending: true })
       if (error) throw error
-      setRows((data||[]) as any)
+      // Enforce range on the client as well:
+      // - For most actions use roster_date (YYYY-MM-DD)
+      // - For 'checked' use meta.pickupTime's date if present (so edited checkout dates respect the filter)
+      const filtered = (data || []).filter((r: any) => {
+        const inRange = (ymd: string) => (ymd >= start && ymd <= end)
+        if (r.action === 'checked' && r.meta?.pickupTime) {
+          const ymd = String(r.meta.pickupTime).slice(0, 10) // YYYY-MM-DD from 'YYYY-MM-DDTHH:mm'
+          return inRange(ymd)
+        }
+        return inRange(String(r.roster_date))
+      })
+      setRows(filtered as any)
     } catch(e) {
       console.error('[history] fetch', e)
       setRows([])
@@ -1039,7 +1046,7 @@ function StudentHistoryBlock() {
           {students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <label className="label">From</label>
-        <input type="date" value={end} onChange={e=>setStart(e.target.value)} />
+        <input type="date" value={start} onChange={e=>setStart(e.target.value)} />
         <label className="label">To</label>
         <input type="date" value={end} onChange={e=>setEnd(e.target.value)} />
         <button className="btn" onClick={run} disabled={!studentId || loading}>{loading?'Loading…':'Run'}</button>
