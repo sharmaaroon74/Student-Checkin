@@ -41,11 +41,6 @@ export default function SkipPage({ students, roster, onSet }: Props) {
   // Upcoming list sort mode (Schedule tab)
   const [futureSort, setFutureSort] = useState<'date' | 'student'>('date')
 
-  // Compact rendering and per-group expansion
-  const [compact, setCompact] = useState(true)
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const toggleExpand = (k: string) => setExpanded(prev => ({ ...prev, [k]: !prev[k] }))
-
   // Meeting-style scheduler UI state (weekdays only; no weekends)
   const [patternDays, setPatternDays] = useState<{[k in 'M'|'T'|'W'|'R'|'F']?: boolean}>({})
   const [patternStart, setPatternStart] = useState<string>('') // YYYY-MM-DD
@@ -285,7 +280,7 @@ export default function SkipPage({ students, roster, onSet }: Props) {
     })
   }
 
-  // --- local helper to render weekday short next to yyyy-mm-dd
+  // --- helper to render weekday short next to yyyy-mm-dd
   function weekdayShort(ymd: string): string {
     const d = parseYMD(ymd)
     if (!d) return ''
@@ -303,7 +298,7 @@ export default function SkipPage({ students, roster, onSet }: Props) {
         </div>
       </div>
 
-      {/* TopToolbar only for Today (search removed from Schedule as requested) */}
+      {/* Toolbar only on Today (search removed on Schedule) */}
       {view === 'today' && (
         <TopToolbar
           schoolSel={schoolSel}
@@ -478,8 +473,7 @@ export default function SkipPage({ students, roster, onSet }: Props) {
           </div>
 
           {/* Right: upcoming schedule (global, grouped; active-only) */}
-          <div className="card" style={{maxHeight:'70vh', overflowY:'auto'}}>
-
+          <div className="card">
             <h3 className="section-title">Upcoming Scheduled Skips</h3>
 
             {/* Sort toggle (Date | Student) */}
@@ -488,11 +482,6 @@ export default function SkipPage({ students, roster, onSet }: Props) {
               <div className="seg">
                 <button className={`seg-btn ${futureSort==='date'?'on':''}`} onClick={()=>setFutureSort('date')}>Date</button>
                 <button className={`seg-btn ${futureSort==='student'?'on':''}`} onClick={()=>setFutureSort('student')}>Student</button>
-              </div>
-              <span className="muted" style={{marginLeft:12}}>View</span>
-              <div className="seg">
-                <button className={`seg-btn ${compact?'on':''}`} onClick={()=>setCompact(true)}>Compact</button>
-                <button className={`seg-btn ${!compact?'on':''}`} onClick={()=>setCompact(false)}>Full</button>
               </div>
             </div>
 
@@ -503,52 +492,58 @@ export default function SkipPage({ students, roster, onSet }: Props) {
             ) : (
               <>
                 {futureSort === 'date' ? (
-                  // Group by date (default)
+                  // Group by date
                   (() => {
                     const groups: Record<string, typeof future> = {}
                     for (const r of future) (groups[r.on_date] ??= []).push(r)
                     const datesSorted = Object.keys(groups).sort()
                     return (
                       <div className="list">
-                        {datesSorted.map(dt => (
-                          <div key={dt} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
-                            <div className="heading" style={{marginBottom:6}}>
-                              {dt} <span className="muted">({weekdayShort(dt)})</span>
-                              <span className="muted" style={{marginLeft:8}}>· {groups[dt].length} student{groups[dt].length>1?'s':''}</span>
-                              {compact && (
-                                <button className="btn" style={{marginLeft:8}} onClick={()=>toggleExpand(`d:${dt}`)}>
-                                  {expanded[`d:${dt}`] ? 'Show less' : 'Show all'}
-                                </button>
-                              )}
-                            </div>
-                            <div className="col" style={{gap:6}}>
-                              {(groups[dt]
-                                .slice()
-                                .sort((a,b)=>a.student_name.localeCompare(b.student_name))
-                                .slice(0, compact && !expanded[`d:${dt}`] ? 6 : undefined)
-                              ).map(r => (
-                                <div key={`${dt}-${r.student_id}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
-                                  <div className="row" style={{gap:8, flexWrap:'wrap'}}>
-                                    <span className="chip">{r.student_name}</span>
-                                    {r.school ? <span className="muted">{r.school}</span> : null}
-                                    {r.note ? <span className="muted">• {r.note}</span> : null}
+                        {datesSorted.map(dt => {
+                          const items = groups[dt].slice().sort((a,b)=>a.student_name.localeCompare(b.student_name))
+                          return (
+                            <div key={dt} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
+                              <div className="heading" style={{marginBottom:6}}>
+                                {dt} <span className="muted">({weekdayShort(dt)})</span>
+                                <span className="muted" style={{marginLeft:8}}>· {items.length} student{items.length>1?'s':''}</span>
+                              </div>
+                              <div
+                                className="grid"
+                                style={{
+                                  display:'grid',
+                                  gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
+                                  gap:8,
+                                  alignItems:'start'
+                                }}
+                              >
+                                {items.map(r => (
+                                  <div key={`${dt}-${r.student_id}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
+                                    <div className="row" style={{gap:8, flexWrap:'wrap'}}>
+                                      <span className="chip" title={r.student_name}>
+                                        {r.student_name}
+                                      </span>
+                                      {r.school ? <span className="muted">{r.school}</span> : null}
+                                      {r.note ? <span className="muted">• {r.note}</span> : null}
+                                    </div>
+                                    <button
+                                      className="btn"
+                                      aria-label={`Remove ${r.student_name} on ${dt}`}
+                                      title="Remove"
+                                      onClick={()=>unschedule(r.student_id, dt)}
+                                    >
+                                      ×
+                                    </button>
                                   </div>
-                                  <div className="sd-card-actions">
-                                    <button className="btn" onClick={()=>unschedule(r.student_id, dt)}>Remove</button>
-                                  </div>
-                                </div>
-                              ))}
-                              {compact && !expanded[`d:${dt}`] && groups[dt].length > 6 && (
-                                <span className="muted">… {groups[dt].length - 6} more</span>
-                              )}
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )
                   })()
                 ) : (
-                  // Group by student, list all dates (incl. today) ascending
+                  // Group by student, list dates (incl. today)
                   (() => {
                     const groups: Record<string, {school: string|null, items: typeof future}> = {}
                     for (const r of future) {
@@ -567,31 +562,37 @@ export default function SkipPage({ students, roster, onSet }: Props) {
                               <div className="heading" style={{marginBottom:6}}>
                                 {name} {g.school ? <span className="muted">— {g.school}</span> : null}
                                 <span className="muted" style={{marginLeft:8}}>· {items.length} date{items.length>1?'s':''}</span>
-                                {compact && (
-                                  <button className="btn" style={{marginLeft:8}} onClick={()=>toggleExpand(`s:${name}`)}>
-                                    {expanded[`s:${name}`] ? 'Show less' : 'Show all'}
-                                  </button>
-                                )}
                               </div>
-                              <div className="col" style={{gap:6}}>
-                                {(compact && !expanded[`s:${name}`] ? items.slice(0, 10) : items).map(r => (
+                              <div
+                                className="grid"
+                                style={{
+                                  display:'grid',
+                                  gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
+                                  gap:8,
+                                  alignItems:'start'
+                                }}
+                              >
+                                {items.map(r => (
                                   <div key={`${name}-${r.on_date}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
                                     <div className="row" style={{gap:8, flexWrap:'wrap'}}>
-                                      <span className="chip">
+                                      <span className="chip" title={r.on_date}>
                                         {r.on_date} <span className="muted">({weekdayShort(r.on_date)})</span>
                                       </span>
                                       {r.note ? <span className="muted">• {r.note}</span> : null}
                                     </div>
-                                    <div className="sd-card-actions">
-                                      <button className="btn" onClick={()=>unschedule(r.student_id, r.on_date)}>Remove</button>
-                                    </div>
+                                    <button
+                                      className="btn"
+                                      aria-label={`Remove ${name} on ${r.on_date}`}
+                                      title="Remove"
+                                      onClick={()=>unschedule(r.student_id, r.on_date)}
+                                    >
+                                      ×
+                                    </button>
                                   </div>
                                 ))}
-                                {compact && !expanded[`s:${name}`] && items.length > 10 && (
-                                  <span className="muted">… {items.length - 10} more</span>
-                                )}
                               </div>
-                            </div>                          )
+                            </div>
+                          )
                         })}
                       </div>
                     )
