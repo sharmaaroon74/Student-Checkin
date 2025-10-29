@@ -295,6 +295,45 @@ export default function SkipPage({ students, roster, onSet }: Props) {
     return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(d)
   }
 
+  // A tiny "chip with close" renderer, keeping everything inside a single bubble
+  function ChipWithClose(props: {
+    title?: string
+    children: React.ReactNode
+    onRemove: () => void
+  }) {
+    return (
+      <span
+        className="chip"
+        title={props.title}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          paddingRight: 6, // room for the x button
+        }}
+      >
+        <span>{props.children}</span>
+        <button
+          className="btn"
+          aria-label="Remove"
+          title="Remove"
+          onClick={props.onRemove}
+          style={{
+            margin: 0,
+            padding: '2px 8px',
+            lineHeight: 1,
+            borderRadius: 9999,
+            background: '#fff',
+            border: '1px solid #e5e7eb',
+            fontSize: 12,
+          }}
+        >
+          ×
+        </button>
+      </span>
+    )
+  }
+
   // ---------- UI ----------
   return (
     <div className="page container">
@@ -525,23 +564,15 @@ export default function SkipPage({ students, roster, onSet }: Props) {
                                 }}
                               >
                                 {items.map(r => (
-                                  <div key={`${dt}-${r.student_id}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
-                                    <div className="row" style={{gap:8, flexWrap:'wrap'}}>
-                                      <span className="chip" title={r.student_name}>
-                                        {r.student_name}
-                                      </span>
-                                      {r.school ? <span className="muted">{r.school}</span> : null}
-                                      {r.note ? <span className="muted">• {r.note}</span> : null}
-                                    </div>
-                                    <button
-                                      className="btn"
-                                      aria-label={`Remove ${r.student_name} on ${dt}`}
-                                      title="Remove"
-                                      onClick={()=>unschedule(r.student_id, dt)}
-                                    >
-                                      ×
-                                    </button>
-                                  </div>
+                                  <ChipWithClose
+                                    key={`${dt}-${r.student_id}`}
+                                    title={`${r.student_name} — ${r.school ?? ''}`}
+                                    onRemove={() => unschedule(r.student_id, dt)}
+                                  >
+                                    <span style={{fontWeight:500}}>{r.student_name}</span>
+                                    {r.school ? <span className="muted" style={{marginLeft:6}}>{r.school}</span> : null}
+                                    {r.note ? <span className="muted" style={{marginLeft:6}}>• {r.note}</span> : null}
+                                  </ChipWithClose>
                                 ))}
                               </div>
                             </div>
@@ -581,22 +612,16 @@ export default function SkipPage({ students, roster, onSet }: Props) {
                                 }}
                               >
                                 {items.map(r => (
-                                  <div key={`${name}-${r.on_date}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
-                                    <div className="row" style={{gap:8, flexWrap:'wrap'}}>
-                                      <span className="chip" title={r.on_date}>
-                                        {r.on_date} <span className="muted">({weekdayShort(r.on_date)})</span>
-                                      </span>
-                                      {r.note ? <span className="muted">• {r.note}</span> : null}
-                                    </div>
-                                    <button
-                                      className="btn"
-                                      aria-label={`Remove ${name} on ${r.on_date}`}
-                                      title="Remove"
-                                      onClick={()=>unschedule(r.student_id, r.on_date)}
-                                    >
-                                      ×
-                                    </button>
-                                  </div>
+                                  <ChipWithClose
+                                    key={`${name}-${r.on_date}`}
+                                    title={`${r.on_date} (${weekdayShort(r.on_date)})`}
+                                    onRemove={() => unschedule(r.student_id, r.on_date)}
+                                  >
+                                    <span style={{fontWeight:500}}>
+                                      {r.on_date} <span className="muted">({weekdayShort(r.on_date)})</span>
+                                    </span>
+                                    {r.note ? <span className="muted" style={{marginLeft:6}}>• {r.note}</span> : null}
+                                  </ChipWithClose>
                                 ))}
                               </div>
                             </div>
