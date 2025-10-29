@@ -38,6 +38,9 @@ export default function SkipPage({ students, roster, onSet }: Props) {
   const [loadingFuture, setLoadingFuture] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Upcoming list sort mode (Schedule tab)
+  const [futureSort, setFutureSort] = useState<'date' | 'student'>('date')
+
   // Meeting-style scheduler UI state (weekdays only; no weekends)
   const [patternDays, setPatternDays] = useState<{[k in 'M'|'T'|'W'|'R'|'F']?: boolean}>({})
   const [patternStart, setPatternStart] = useState<string>('') // YYYY-MM-DD
@@ -277,6 +280,13 @@ export default function SkipPage({ students, roster, onSet }: Props) {
     })
   }
 
+  // --- local helper to render weekday short next to yyyy-mm-dd
+  function weekdayShort(ymd: string): string {
+    const d = parseYMD(ymd)
+    if (!d) return ''
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(d)
+  }
+
   // ---------- UI ----------
   return (
     <div className="page container">
@@ -288,15 +298,18 @@ export default function SkipPage({ students, roster, onSet }: Props) {
         </div>
       </div>
 
-      <TopToolbar
-        schoolSel={schoolSel}
-        onSchoolSel={setSchoolSel}
-        search={q}
-        onSearch={setQ}
-        sortBy={sortBy}
-        onSortBy={setSortBy}
-        counts={counts}
-      />
+      {/* TopToolbar only for Today (search removed from Schedule as requested) */}
+      {view === 'today' && (
+        <TopToolbar
+          schoolSel={schoolSel}
+          onSchoolSel={setSchoolSel}
+          search={q}
+          onSearch={setQ}
+          sortBy={sortBy}
+          onSortBy={setSortBy}
+          counts={counts}
+        />
+      )}
 
       {/* TODAY VIEW */}
       {view === 'today' && (
@@ -459,45 +472,103 @@ export default function SkipPage({ students, roster, onSet }: Props) {
             </div>
           </div>
 
-          {/* Right: upcoming schedule (global, grouped by date, active-only) */}
+          {/* Right: upcoming schedule (global, grouped; active-only) */}
           <div className="card">
             <h3 className="section-title">Upcoming Scheduled Skips</h3>
+
+            {/* Sort toggle (Date | Student) */}
+            <div className="row" style={{justifyContent:'flex-end', gap:8, marginBottom:8}}>
+              <span className="muted">Sort by</span>
+              <div className="seg">
+                <button className={`seg-btn ${futureSort==='date'?'on':''}`} onClick={()=>setFutureSort('date')}>Date</button>
+                <button className={`seg-btn ${futureSort==='student'?'on':''}`} onClick={()=>setFutureSort('student')}>Student</button>
+              </div>
+            </div>
+
             {loadingFuture ? (
               <div className="muted">Loading…</div>
             ) : future.length===0 ? (
               <div className="muted">No future skip dates found.</div>
             ) : (
-              (() => {
-                const groups: Record<string, typeof future> = {}
-                for (const r of future) (groups[r.on_date] ??= []).push(r)
-                const datesSorted = Object.keys(groups).sort()
-                return (
-                  <div className="list">
-                    {datesSorted.map(dt => (
-                      <div key={dt} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
-                        <div className="heading" style={{marginBottom:6}}>{dt}</div>
-                        <div className="col" style={{gap:6}}>
-                          {groups[dt]
-                            .slice()
-                            .sort((a,b)=>a.student_name.localeCompare(b.student_name))
-                            .map(r => (
-                              <div key={`${dt}-${r.student_id}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
-                                <div className="row" style={{gap:8, flexWrap:'wrap'}}>
-                                  <span className="chip">{r.student_name}</span>
-                                  {r.school ? <span className="muted">{r.school}</span> : null}
-                                  {r.note ? <span className="muted">• {r.note}</span> : null}
-                                </div>
-                                <div className="sd-card-actions">
-                                  <button className="btn" onClick={()=>unschedule(r.student_id, dt)}>Remove</button>
-                                </div>
-                              </div>
-                            ))}
-                        </div>
+              <>
+                {futureSort === 'date' ? (
+                  // Group by date (default)
+                  (() => {
+                    const groups: Record<string, typeof future> = {}
+                    for (const r of future) (groups[r.on_date] ??= []).push(r)
+                    const datesSorted = Object.keys(groups).sort()
+                    return (
+                      <div className="list">
+                        {datesSorted.map(dt => (
+                          <div key={dt} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
+                            <div className="heading" style={{marginBottom:6}}>
+                              {dt} <span className="muted">({weekdayShort(dt)})</span>
+                            </div>
+                            <div className="col" style={{gap:6}}>
+                              {groups[dt]
+                                .slice()
+                                .sort((a,b)=>a.student_name.localeCompare(b.student_name))
+                                .map(r => (
+                                  <div key={`${dt}-${r.student_id}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
+                                    <div className="row" style={{gap:8, flexWrap:'wrap'}}>
+                                      <span className="chip">{r.student_name}</span>
+                                      {r.school ? <span className="muted">{r.school}</span> : null}
+                                      {r.note ? <span className="muted">• {r.note}</span> : null}
+                                    </div>
+                                    <div className="sd-card-actions">
+                                      <button className="btn" onClick={()=>unschedule(r.student_id, dt)}>Remove</button>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )
-              })()
+                    )
+                  })()
+                ) : (
+                  // Group by student, list all dates (incl. today) ascending
+                  (() => {
+                    const groups: Record<string, {school: string|null, items: typeof future}> = {}
+                    for (const r of future) {
+                      const key = r.student_name
+                      if (!groups[key]) groups[key] = { school: r.school ?? null, items: [] }
+                      groups[key].items.push(r)
+                    }
+                    const studentsSorted = Object.keys(groups).sort()
+                    return (
+                      <div className="list">
+                        {studentsSorted.map(name => {
+                          const g = groups[name]
+                          const items = g.items.slice().sort((a,b)=>a.on_date.localeCompare(b.on_date))
+                          return (
+                            <div key={name} className="card-row sd-row" style={{flexDirection:'column', alignItems:'stretch'}}>
+                              <div className="heading" style={{marginBottom:6}}>
+                                {name} {g.school ? <span className="muted">— {g.school}</span> : null}
+                              </div>
+                              <div className="col" style={{gap:6}}>
+                                {items.map(r => (
+                                  <div key={`${name}-${r.on_date}`} className="row" style={{justifyContent:'space-between', alignItems:'center', gap:8}}>
+                                    <div className="row" style={{gap:8, flexWrap:'wrap'}}>
+                                      <span className="chip">
+                                        {r.on_date} <span className="muted">({weekdayShort(r.on_date)})</span>
+                                      </span>
+                                      {r.note ? <span className="muted">• {r.note}</span> : null}
+                                    </div>
+                                    <div className="sd-card-actions">
+                                      <button className="btn" onClick={()=>unschedule(r.student_id, r.on_date)}>Remove</button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()
+                )}
+              </>
             )}
           </div>
         </div>
