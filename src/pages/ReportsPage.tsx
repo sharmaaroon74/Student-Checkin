@@ -131,9 +131,7 @@ export function buildDailyPrintHtml(
       <thead>${header}</thead>
       <tbody>${body}</tbody>
     </table>
-    <script>
-      window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 0); });
-    </script>
+
   </body>
 </html>`;
 }
@@ -605,9 +603,7 @@ export default function ReportsPage() {
       <thead>${headerCells}</thead>
       <tbody>${bodyRows}</tbody>
     </table>
-    <script>
-      window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 0); });
-    </script>
+
   </body>
 </html>`
   }
