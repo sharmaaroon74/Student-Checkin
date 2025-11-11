@@ -1,4 +1,4 @@
-// src/pages/ReportsPage.tsx 
+// src/pages/ReportsPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -53,7 +53,7 @@ function estLocalToUtcIso(local: string): string | null {
   return new Date(utcMs).toISOString()
 }
 
-// Printer-friendly Daily HTML (top-level named export so tests can import)
+// Printer-friendly Daily HTML (updated headers per requirements)
 export function buildDailyPrintHtml(
   dateStrForHeader: string,
   rowsForPrint: Row[],
@@ -72,8 +72,8 @@ export function buildDailyPrintHtml(
     '<tr>' +
     '<th>Student Name</th>' +
     '<th>School</th>' +
-    '<th>School Pickup Time</th>' +
-    '<th>Sunny Days Arrival Time</th>' +
+    // removed School Pickup Time
+    '<th>Check-in Time</th>' + // was "Sunny Days Arrival Time"
     '<th>Checkout Time</th>' +
     '<th>Picked Up By</th>' +
     '<th>Time @ Sunny Days</th>' +
@@ -82,7 +82,7 @@ export function buildDailyPrintHtml(
 
   const body =
     rowsForPrint.length === 0
-      ? '<tr><td colspan="8" style="text-align:center;padding:8px;">No rows for this date.</td></tr>'
+      ? '<tr><td colspan="7" style="text-align:center;padding:8px;">No rows for this date.</td></tr>'
       : rowsForPrint
           .map((r: any) => {
             const total = r.__total_str ?? '';
@@ -93,8 +93,8 @@ export function buildDailyPrintHtml(
               '<tr>' +
               `<td>${nameFormatter(r.student_name)}</td>` +
               `<td>${r.school ?? ''}</td>` +
-              `<td>${fmt(r.picked_time)}</td>` +
-              `<td>${fmt(r.arrived_time)}</td>` +
+              // removed picked_time column
+              `<td>${fmt(r.arrived_time)}</td>` + // Check-in Time
               `<td>${fmt(r.checked_time)}</td>` +
               `<td>${r.pickup_person ?? ''}</td>` +
               `<td>${total}</td>` +
@@ -175,7 +175,7 @@ export default function ReportsPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
 
-  // Ensure rows exist for Approved tab too
+  // ===== Approved tab fetch (unchanged) =====
   useEffect(() => {
     if (view !== 'approved') return
     let alive = true
@@ -214,7 +214,7 @@ export default function ReportsPage() {
     return () => { alive = false }
   }, [view])
 
-  // DAILY fetch (original behavior)
+  // ===== Daily fetch (unchanged) =====
   useEffect(() => {
     if (view !== 'daily') return
     let alive = true
@@ -313,7 +313,7 @@ export default function ReportsPage() {
     return () => { alive = false }
   }, [dateStr, view])
 
-  // DAILY derived
+  // ===== Daily derived (unchanged logic, updated column names later in render/CSV/print) =====
   const filteredSorted = useMemo(() => {
     if (view !== 'daily') return []
     let data = [...rows]
@@ -365,11 +365,11 @@ export default function ReportsPage() {
       .map(x => x.r)
   }, [rows, sortBy, hideNoActivity, hideSkipped, school, onlyLongStays, view])
 
-  // CSV (Daily only)
+  // ===== CSV (Daily) – updated headers/columns =====
   function exportCSV() {
     if (view !== 'daily') return
     const header = [
-      'Student Name','School','School Pickup Time','Sunny Days Arrival Time',
+      'Student Name','School','Check-in Time', // renamed; removed school pickup time
       'Checkout Time','Picked Up By','Time @ Sunny Days','Current Status',
     ]
     const fmt = (iso?: string | null) =>
@@ -379,8 +379,7 @@ export default function ReportsPage() {
       lines.push([
         `"${r.student_name.replace(/"/g,'""')}"`,
         `"${(r.school ?? '').replace(/"/g,'""')}"`,
-        `"${fmt(r.picked_time)}"`,
-        `"${fmt(r.arrived_time)}"`,
+        `"${fmt(r.arrived_time)}"`, // Check-in Time
         `"${fmt(r.checked_time)}"`,
         `"${(r.pickup_person ?? '').replace(/"/g,'""')}"`,
         `"${(((r as any).__total_str ?? '') as string).replace(/"/g,'""')}"`,
@@ -396,7 +395,7 @@ export default function ReportsPage() {
     a.remove(); URL.revokeObjectURL(url)
   }
 
-  // Open a minimal printer-friendly page for Daily
+  // Open a minimal printer-friendly page for Daily (uses updated headers)
   function printDaily() {
     if (view !== 'daily') return
     const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
@@ -534,7 +533,7 @@ export default function ReportsPage() {
       }
 
       const out = Array.from(rowMap.values())
-        .filter(r => Object.keys(r.totals).length > 0)
+        // leave base order by first name; sorting for display handled by memo below
         .sort((a,b)=> a.student_name.localeCompare(b.student_name))
 
       setHoursRows(out)
@@ -563,7 +562,7 @@ export default function ReportsPage() {
       ? '<tr><td colspan="' + (2+cols.length) + '" style="text-align:center;padding:8px;">No rows.</td></tr>'
       : rows.map(r =>
           '<tr>' +
-            `<td>${r.student_name}</td>` +
+            `<td>${fmtStudentName(r.student_name)}</td>` + // apply same sort-format as UI
             `<td>${r.school}</td>` +
             cols.map(c => `<td>${r.totals[c] || ''}</td>`).join('') +
           '</tr>'
@@ -600,9 +599,10 @@ export default function ReportsPage() {
 </html>`
   }
 
+  // sort-aware print for Hours (use the same sorting the UI shows)
   function printHours() {
     if (view !== 'hours') return
-    const html = buildHoursPrintHtml(rangeStart, rangeEnd, hoursCols, hoursRows)
+    const html = buildHoursPrintHtml(rangeStart, rangeEnd, hoursCols, hoursRowsSorted)
     const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     const iframe = document.createElement('iframe')
@@ -615,6 +615,24 @@ export default function ReportsPage() {
       setTimeout(() => { URL.revokeObjectURL(url); iframe.remove() }, 1000)
     }
   }
+
+  // ===== hoursRows sorted for display by first/last (same toggle as Daily) =====
+  const hoursRowsSorted = useMemo(() => {
+    const arr = [...hoursRows]
+    const norm = (s:string)=>s.toLowerCase().trim()
+    const last = (full: string) => {
+      const noParen = full.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim()
+      const parts = noParen.split(' ')
+      return parts.length ? parts[parts.length - 1] : ''
+    }
+    return arr.sort((a,b)=>{
+      if (sortBy === 'first') {
+        return norm(a.student_name).localeCompare(norm(b.student_name), undefined, { sensitivity:'base' })
+      }
+      const la = last(a.student_name), lb = last(b.student_name)
+      return la.localeCompare(lb, undefined, { sensitivity:'base' })
+    })
+  }, [hoursRows, sortBy])
 
   const fmtCell = (iso?: string|null) =>
     iso ? new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'numeric', minute:'2-digit' }).format(new Date(iso)) : ''
@@ -673,13 +691,18 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Row 2 (Hours): range controls + Print */}
+        {/* Row 2 (Hours): range controls + Sort + Print */}
         {view==='hours' && (
           <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
             <label className="label">From</label>
             <input type="date" value={rangeStart} onChange={e=>setRangeStart(e.target.value)} />
             <label className="label">To</label>
             <input type="date" value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} />
+            <label className="label">Sort</label>
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
+              <option value="first">First Name</option>
+              <option value="last">Last Name</option>
+            </select>
             <button className="btn" onClick={runHours} disabled={hoursLoading}>{hoursLoading?'Loading…':'Run'}</button>
             <button className="btn" onClick={printHours} disabled={hoursCols.length===0 || hoursRows.length===0}>🖨️ Print</button>
           </div>
@@ -700,8 +723,8 @@ export default function ReportsPage() {
                   <tr>
                     <th className="col-name">Student Name</th>
                     <th className="col-school">School</th>
-                    <th className="col-time">School Pickup Time</th>
-                    <th className="col-time">Sunny Days Arrival Time</th>
+                    {/* removed School Pickup Time */}
+                    <th className="col-time">Check-in Time</th>
                     <th className="col-time">Checkout Time</th>
                     <th className="col-person">Picked Up By</th>
                     <th className="col-time">Time @ Sunny Days</th>
@@ -713,7 +736,7 @@ export default function ReportsPage() {
                     <tr key={r.student_id}>
                       <td className="cell-name">{fmtStudentName(r.student_name)}</td>
                       <td className="cell-school">{r.school}</td>
-                      <td className="cell-time">{fmtCell(r.picked_time)}</td>
+                      {/* Check-in = arrived_time */}
                       <td className="cell-time">{fmtCell(r.arrived_time)}</td>
                       <td className="cell-time">{fmtCell(r.checked_time)}</td>
                       <td className="cell-person">{r.pickup_person || ''}</td>
@@ -737,7 +760,7 @@ export default function ReportsPage() {
         <div className="card report-table-card">
           {hoursLoading ? (
             <div className="muted">Loading…</div>
-          ) : hoursRows.length === 0 ? (
+          ) : hoursRowsSorted.length === 0 ? (
             <div className="muted" style={{padding:'8px 2px'}}>No rows.</div>
           ) : (
             <div className="report-table-scroll" data-testid="hours-table-scroll">
@@ -752,9 +775,9 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody className="report-tbody">
-                  {hoursRows.map((r) => (
+                  {hoursRowsSorted.map((r) => (
                     <tr key={r.student_id}>
-                      <td className="cell-name">{r.student_name}</td>
+                      <td className="cell-name">{fmtStudentName(r.student_name)}</td>
                       <td className="cell-school">{r.school}</td>
                       {hoursCols.map(d => (
                         <td key={d} className="cell-time">{r.totals[d] || ''}</td>
@@ -770,50 +793,7 @@ export default function ReportsPage() {
 
       {/* APPROVED PICKUPS */}
       {view === 'approved' && (
-        <div className="card report-table-card">
-          {busy ? (
-            <div className="muted">Loading…</div>
-          ) : rows.length === 0 ? (
-            <div className="muted" style={{padding:'8px 2px'}}>No students.</div>
-          ) : (
-            <div className="report-table-scroll">
-              <table className="report-table">
-                <thead className="report-thead">
-                  <tr>
-                    <th className="col-name">Student Name</th>
-                    <th className="col-school">School</th>
-                    <th className="col-person">Approved Pickups</th>
-                    <th className="col-person">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="report-tbody">
-                  {rows
-                    .slice()
-                    .sort((a,b)=>a.student_name.localeCompare(b.student_name))
-                    .map((r)=>(
-                    <ApprovedRow key={r.student_id} row={r} onSaved={async ()=>{
-                      const { data: fresh, error } = await supabase
-                        .from('students')
-                        .select('id, approved_pickups')
-                        .eq('id', r.student_id)
-                        .maybeSingle()
-                      if (!error && fresh) {
-                        const apRaw = (fresh as any).approved_pickups
-                        const isString = typeof apRaw === 'string'
-                        let apList: string[] | null = null
-                        if (Array.isArray(apRaw)) apList = apRaw as string[]
-                        else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
-                        setRows(prev => prev.map(p => p.student_id===r.student_id
-                          ? {...p, approved_pickups: apList, __apRawType: isString ? 'string' : 'json'}
-                          : p))
-                      }
-                    }} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <ApprovedPickupsBlock rows={rows} busy={busy} setRows={setRows} />
       )}
 
       {/* STUDENT HISTORY */}
@@ -824,6 +804,7 @@ export default function ReportsPage() {
   )
 }
 
+/* ----- Approved Pickups row/block kept identical to your prior version ----- */
 function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) {
   const [editing, setEditing] = React.useState(false)
   const [items, setItems] = React.useState<string[]>(
@@ -838,13 +819,13 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         ? { approved_pickups: JSON.stringify(clean) }
         : { approved_pickups: clean }
 
-    const { data, error } = await supabase.rpc(
+    const { error } = await supabase.rpc(
       'rpc_update_student_approved_pickups',
       { p_student_id: row.student_id, p_pickups: clean }
     )
     if (error) {
       console.warn('[approved_pickups save] RPC failed, falling back to direct update', error)
-      const { data: upd, error: uerr } = await supabase
+      const { error: uerr, data: upd } = await supabase
         .from('students')
         .update(payload)
         .eq('id', row.student_id)
@@ -869,7 +850,6 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         <td className="cell-person" colSpan={2} data-testid="ap-editor-spanning-cell">
           <div className="row"
                style={{display:'grid', gridTemplateColumns:'1fr 320px', gap:12, alignItems:'start'}}>
-            {/* LEFT: current list with remove buttons */}
             <div className="col" style={{gap:8}}>
               <div className="row" style={{gap:6, flexWrap:'wrap'}}>
                 {items.length===0 ? <span className="muted">None</span> :
@@ -884,7 +864,6 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
                 }
               </div>
             </div>
-            {/* RIGHT: add box + actions */}
             <div className="col" style={{gap:8}}>
               <div className="row" style={{gap:6, flexWrap:'wrap'}}>
                 <input
@@ -925,9 +904,7 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
               items.map((p,i)=>(
                 <span key={i} className="chip"
                   style={{marginRight:6, display:'inline-block', whiteSpace:'nowrap',
-                          overflow:'hidden', textOverflow:'ellipsis', maxWidth:'240px', verticalAlign:'top'}}>
-                  {p}
-                </span>
+                          overflow:'hidden', textOverflow:'ellipsis', maxWidth:'240px', verticalAlign:'top'}}>{p}</span>
               ))
             )}
           </td>
@@ -936,18 +913,61 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
           </td>
         </>
       )}
-
-
     </tr>
+  )
+}
+
+function ApprovedPickupsBlock({rows, busy, setRows}:{rows:Row[], busy:boolean, setRows:React.Dispatch<React.SetStateAction<Row[]>>}) {
+  return (
+    <div className="card report-table-card">
+      {busy ? (
+        <div className="muted">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="muted" style={{padding:'8px 2px'}}>No students.</div>
+      ) : (
+        <div className="report-table-scroll">
+          <table className="report-table">
+            <thead className="report-thead">
+              <tr>
+                <th className="col-name">Student Name</th>
+                <th className="col-school">School</th>
+                <th className="col-person">Approved Pickups</th>
+                <th className="col-person">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="report-tbody">
+              {rows
+                .slice()
+                .sort((a,b)=>a.student_name.localeCompare(b.student_name))
+                .map((r)=>(<ApprovedRow key={r.student_id} row={r} onSaved={async ()=>{
+                  const { data: fresh, error } = await supabase
+                    .from('students')
+                    .select('id, approved_pickups')
+                    .eq('id', r.student_id)
+                    .maybeSingle()
+                  if (!error && fresh) {
+                    const apRaw = (fresh as any).approved_pickups
+                    const isString = typeof apRaw === 'string'
+                    let apList: string[] | null = null
+                    if (Array.isArray(apRaw)) apList = apRaw as string[]
+                    else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
+                    setRows(prev => prev.map(p => p.student_id===r.student_id
+                      ? {...p, approved_pickups: apList, __apRawType: isString ? 'string' : 'json'}
+                      : p))
+                  }
+                }} />))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
 
 function StudentHistoryBlock() {
   const [studentId, setStudentId] = React.useState<string>('')
-// Default From/To to today's date (EST)
   const [start, setStart] = React.useState<string>(() => estDateString(new Date()))
-  const [end, setEnd]   = React.useState<string>(() => estDateString(new Date()))
-  
+  const [end, setEnd] = React.useState<string>(() => estDateString(new Date()))
   const [loading, setLoading] = React.useState(false)
   const [rows, setRows] = React.useState<Array<{id:number, roster_date:string, action:string, at:string, meta:any, student_name:string}>>([])
   const [students, setStudents] = React.useState<Array<{id:string, name:string}>>([])
@@ -972,13 +992,11 @@ function StudentHistoryBlock() {
         .order('roster_date', { ascending: true })
         .order('at', { ascending: true })
       if (error) throw error
-      // Enforce range on the client as well:
-      // - For most actions use roster_date (YYYY-MM-DD)
-      // - For 'checked' use meta.pickupTime's date if present (so edited checkout dates respect the filter)
+      // client-side guard to respect edited pickupTime dates
       const filtered = (data || []).filter((r: any) => {
         const inRange = (ymd: string) => (ymd >= start && ymd <= end)
         if (r.action === 'checked' && r.meta?.pickupTime) {
-          const ymd = String(r.meta.pickupTime).slice(0, 10) // YYYY-MM-DD from 'YYYY-MM-DDTHH:mm'
+          const ymd = String(r.meta.pickupTime).slice(0, 10)
           return inRange(ymd)
         }
         return inRange(String(r.roster_date))
@@ -995,14 +1013,14 @@ function StudentHistoryBlock() {
   async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
     try {
       if (action === 'checked') {
-        const { data, error } = await supabase.rpc('rpc_set_log_pickup_time', {
+        const { error } = await supabase.rpc('rpc_set_log_pickup_time', {
           p_log_id: logId,
           p_pickup_time: local,
         })
         if (error) {
           console.warn('[history] rpc_set_log_pickup_time failed, falling back to direct update', error)
           const merged = { ...(currentMeta || {}), pickupTime: local }
-          const { data: upd, error: uerr } = await supabase
+          const { error: uerr, data: upd } = await supabase
             .from('logs')
             .update({ meta: merged })
             .eq('id', logId)
@@ -1012,13 +1030,13 @@ function StudentHistoryBlock() {
         }
       } else {
         const iso = estLocalToUtcIso(local) ?? new Date().toISOString()
-        const { data, error } = await supabase.rpc('rpc_set_log_at', {
+        const { error } = await supabase.rpc('rpc_set_log_at', {
           p_log_id: logId,
           p_at_iso: iso,
         })
         if (error) {
           console.warn('[history] rpc_set_log_at failed, falling back to direct update', error)
-          const { data: upd, error: uerr } = await supabase
+          const { error: uerr, data: upd } = await supabase
             .from('logs')
             .update({ at: iso })
             .eq('id', logId)
