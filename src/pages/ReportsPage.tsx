@@ -6,6 +6,7 @@ type Row = {
   student_id: string
   student_name: string
   school: string
+  program?: string | null
   picked_time?: string | null
   arrived_time?: string | null
   checked_time?: string | null
@@ -53,7 +54,7 @@ function estLocalToUtcIso(local: string): string | null {
   return new Date(utcMs).toISOString()
 }
 
-// Printer-friendly Daily HTML (updated headers per requirements)
+// Printer-friendly Daily HTML (updated to include Program after School)
 export function buildDailyPrintHtml(
   dateStrForHeader: string,
   rowsForPrint: Row[],
@@ -72,9 +73,10 @@ export function buildDailyPrintHtml(
     '<tr>' +
     '<th>Student Name</th>' +
     '<th>School</th>' +
-    // removed School Pickup Time
+    '<th>Program</th>' + // NEW
+    // removed School Pickup Time previously
     '<th>Check-in Time</th>' + // was "Sunny Days Arrival Time"
-    '<th>Checkout Time</th>' +
+    '<th>Check-out Time</th>' +
     '<th>Picked Up By</th>' +
     '<th>Time @ Sunny Days</th>' +
     '<th>Current Status</th>' +
@@ -82,27 +84,28 @@ export function buildDailyPrintHtml(
 
   const body =
     rowsForPrint.length === 0
-      ? '<tr><td colspan="7" style="text-align:center;padding:8px;">No rows for this date.</td></tr>'
+      ? '<tr><td colspan="8" style="text-align:center;padding:8px;">No rows for this date.</td></tr>'
       : rowsForPrint
           .map((r: any) => {
-            const total = r.__total_str ?? '';
+            const total = r.__total_str ?? ''
             const status = String(r.final_status || '').toLowerCase() === 'checked'
               ? 'checked-out'
-              : (r.final_status || '');
+              : (r.final_status || '')
             return (
               '<tr>' +
               `<td>${nameFormatter(r.student_name)}</td>` +
               `<td>${r.school ?? ''}</td>` +
-              // removed picked_time column
+              `<td>${r.program ?? ''}</td>` + // NEW
+              // removed picked_time column previously
               `<td>${fmt(r.arrived_time)}</td>` + // Check-in Time
               `<td>${fmt(r.checked_time)}</td>` +
               `<td>${r.pickup_person ?? ''}</td>` +
               `<td>${total}</td>` +
               `<td>${status}</td>` +
              '</tr>'
-            );
+            )
           })
-          .join('');
+          .join('')
 
   return `<!doctype html>
 <html>
@@ -151,6 +154,7 @@ export default function ReportsPage() {
     student_id: string
     student_name: string
     school: string
+    program?: string | null
     totals: Record<string, string>
   }>>([])
   const [hoursLoading, setHoursLoading] = useState(false)
@@ -214,7 +218,7 @@ export default function ReportsPage() {
     return () => { alive = false }
   }, [view])
 
-  // ===== Daily fetch (unchanged) =====
+  // ===== Daily fetch (same, with program pulled from school_year) =====
   useEffect(() => {
     if (view !== 'daily') return
     let alive = true
@@ -223,7 +227,7 @@ export default function ReportsPage() {
       try {
         const { data: students, error: sErr } = await supabase
           .from('students')
-          .select('id, first_name, last_name, school, approved_pickups')
+          .select('id, first_name, last_name, school, school_year, approved_pickups')
           .eq('active', true)
         if (sErr) throw sErr
 
@@ -290,6 +294,7 @@ export default function ReportsPage() {
             student_id: sid,
             student_name: `${st.first_name} ${st.last_name}`,
             school: (st.school as string) ?? '',
+            program: (st.school_year as string) ?? null, // NEW
             picked_time: pickedEarliest.get(sid) || null,
             arrived_time: arrivedEarliest.get(sid) || null,
             checked_time: checked,
@@ -313,7 +318,7 @@ export default function ReportsPage() {
     return () => { alive = false }
   }, [dateStr, view])
 
-  // ===== Daily derived (unchanged logic, updated column names later in render/CSV/print) =====
+  // ===== Daily derived (unchanged logic) =====
   const filteredSorted = useMemo(() => {
     if (view !== 'daily') return []
     let data = [...rows]
@@ -365,12 +370,12 @@ export default function ReportsPage() {
       .map(x => x.r)
   }, [rows, sortBy, hideNoActivity, hideSkipped, school, onlyLongStays, view])
 
-  // ===== CSV (Daily) – updated headers/columns =====
+  // ===== CSV (Daily) – add Program after School =====
   function exportCSV() {
     if (view !== 'daily') return
     const header = [
-      'Student Name','School','Check-in Time', // renamed; removed school pickup time
-      'Checkout Time','Picked Up By','Time @ Sunny Days','Current Status',
+      'Student Name','School','Program','Check-in Time',
+      'Check-out Time','Picked Up By','Time @ Sunny Days','Current Status',
     ]
     const fmt = (iso?: string | null) =>
       iso ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)) : ''
@@ -379,6 +384,7 @@ export default function ReportsPage() {
       lines.push([
         `"${r.student_name.replace(/"/g,'""')}"`,
         `"${(r.school ?? '').replace(/"/g,'""')}"`,
+        `"${(r.program ?? '').replace(/"/g,'""')}"`, // NEW
         `"${fmt(r.arrived_time)}"`, // Check-in Time
         `"${fmt(r.checked_time)}"`,
         `"${(r.pickup_person ?? '').replace(/"/g,'""')}"`,
@@ -441,7 +447,7 @@ export default function ReportsPage() {
     }).format(new Date(utcNoon))
   }
 
-  // Run the 4+ Hours report over a date range → pivoted table
+  // Run the 4+ Hours report over a date range → pivoted table (adds Program)
   async function runHours() {
     setHoursLoading(true)
     try {
@@ -453,17 +459,20 @@ export default function ReportsPage() {
         return
       }
 
-      // Fetch active students for name/school lookup
+      // Fetch active students for name/school/program lookup
       const { data: students, error: sErr } = await supabase
         .from('students')
-        .select('id, first_name, last_name, school, active')
+        .select('id, first_name, last_name, school, school_year, active')
         .eq('active', true)
       if (sErr) throw sErr
       const nameById = new Map<string,string>()
       const schoolById = new Map<string,string>()
+      const programById = new Map<string,string|null>()
       for (const st of students || []) {
-        nameById.set(st.id as string, `${st.first_name} ${st.last_name}`)
-        schoolById.set(st.id as string, (st.school as string) ?? '')
+        const sid = st.id as string
+        nameById.set(sid, `${st.first_name} ${st.last_name}`)
+        schoolById.set(sid, (st.school as string) ?? '')
+        programById.set(sid, (st.school_year as string) ?? null)
       }
 
       // Pull logs in range
@@ -500,7 +509,9 @@ export default function ReportsPage() {
       }
 
       // Build pivot rows per student with only ≥4h totals populated
-      const rowMap = new Map<string, { student_id:string, student_name:string, school:string, totals: Record<string,string> }>()
+      const rowMap = new Map<string, {
+        student_id:string, student_name:string, school:string, program?: string | null, totals: Record<string,string>
+      }>()
       const fourHoursMs = 4 * 60 * 60 * 1000
 
       for (const colDate of cols) {
@@ -525,6 +536,7 @@ export default function ReportsPage() {
               student_id: sid,
               student_name: nameById.get(sid) || sid,
               school: schoolById.get(sid) || '',
+              program: programById.get(sid) ?? null, // NEW
               totals: {}
             })
           }
@@ -546,24 +558,25 @@ export default function ReportsPage() {
     }
   }
 
-  // Printer-friendly HTML for the Hours report
+  // Printer-friendly HTML for the Hours report (add Program column)
   function buildHoursPrintHtml(
     startStr: string,
     endStr: string,
     cols: string[],
-    rows: Array<{student_id:string, student_name:string, school:string, totals:Record<string,string>}>
+    rows: Array<{student_id:string, student_name:string, school:string, program?: string | null, totals:Record<string,string>}>
   ): string {
     const headerCells =
-      '<tr><th>Student Name</th><th>School</th>' +
+      '<tr><th>Student Name</th><th>School</th><th>Program</th>' + // NEW
       cols.map(c => `<th>${mmdd(c)}</th>`).join('') +
       '</tr>'
 
     const bodyRows = rows.length === 0
-      ? '<tr><td colspan="' + (2+cols.length) + '" style="text-align:center;padding:8px;">No rows.</td></tr>'
+      ? '<tr><td colspan="' + (3+cols.length) + '" style="text-align:center;padding:8px;">No rows.</td></tr>'
       : rows.map(r =>
           '<tr>' +
             `<td>${fmtStudentName(r.student_name)}</td>` + // apply same sort-format as UI
             `<td>${r.school}</td>` +
+            `<td>${r.program ?? ''}</td>` + // NEW
             cols.map(c => `<td>${r.totals[c] || ''}</td>`).join('') +
           '</tr>'
         ).join('')
@@ -723,9 +736,10 @@ export default function ReportsPage() {
                   <tr>
                     <th className="col-name">Student Name</th>
                     <th className="col-school">School</th>
+                    <th className="col-school">Program</th>{/* NEW */}
                     {/* removed School Pickup Time */}
                     <th className="col-time">Check-in Time</th>
-                    <th className="col-time">Checkout Time</th>
+                    <th className="col-time">Check-out Time</th>
                     <th className="col-person">Picked Up By</th>
                     <th className="col-time">Time @ Sunny Days</th>
                     <th className="col-status">Current Status</th>
@@ -736,6 +750,7 @@ export default function ReportsPage() {
                     <tr key={r.student_id}>
                       <td className="cell-name">{fmtStudentName(r.student_name)}</td>
                       <td className="cell-school">{r.school}</td>
+                      <td className="cell-school">{r.program ?? ''}</td>{/* NEW */}
                       {/* Check-in = arrived_time */}
                       <td className="cell-time">{fmtCell(r.arrived_time)}</td>
                       <td className="cell-time">{fmtCell(r.checked_time)}</td>
@@ -769,6 +784,7 @@ export default function ReportsPage() {
                   <tr>
                     <th className="col-name">Student Name</th>
                     <th className="col-school">School</th>
+                    <th className="col-school">Program</th>{/* NEW */}
                     {hoursCols.map(d => (
                       <th key={d} className="col-time">{mmdd(d)}</th>
                     ))}
@@ -779,6 +795,7 @@ export default function ReportsPage() {
                     <tr key={r.student_id}>
                       <td className="cell-name">{fmtStudentName(r.student_name)}</td>
                       <td className="cell-school">{r.school}</td>
+                      <td className="cell-school">{r.program ?? ''}</td>{/* NEW */}
                       {hoursCols.map(d => (
                         <td key={d} className="cell-time">{r.totals[d] || ''}</td>
                       ))}
