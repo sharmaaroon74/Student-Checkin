@@ -1,3 +1,4 @@
+// src/pages/ReportsPage.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -53,7 +54,7 @@ function estLocalToUtcIso(local: string): string | null {
   return new Date(utcMs).toISOString()
 }
 
-// Printer-friendly Daily HTML (with Program)
+// Printer-friendly Daily HTML (updated to include Program after School)
 export function buildDailyPrintHtml(
   dateStrForHeader: string,
   rowsForPrint: Row[],
@@ -72,8 +73,9 @@ export function buildDailyPrintHtml(
     '<tr>' +
     '<th>Student Name</th>' +
     '<th>School</th>' +
-    '<th>Program</th>' +
-    '<th>Check-in Time</th>' +
+    '<th>Program</th>' + // NEW
+    // removed School Pickup Time previously
+    '<th>Check-in Time</th>' + // was "Sunny Days Arrival Time"
     '<th>Check-out Time</th>' +
     '<th>Picked Up By</th>' +
     '<th>Time @ Sunny Days</th>' +
@@ -85,24 +87,25 @@ export function buildDailyPrintHtml(
       ? '<tr><td colspan="8" style="text-align:center;padding:8px;">No rows for this date.</td></tr>'
       : rowsForPrint
           .map((r: any) => {
-            const total = r.__total_str ?? '';
+            const total = r.__total_str ?? ''
             const status = String(r.final_status || '').toLowerCase() === 'checked'
               ? 'checked-out'
-              : (r.final_status || '');
+              : (r.final_status || '')
             return (
               '<tr>' +
               `<td>${nameFormatter(r.student_name)}</td>` +
               `<td>${r.school ?? ''}</td>` +
-              `<td>${r.program ?? ''}</td>` +
-              `<td>${fmt(r.arrived_time)}</td>` +
+              `<td>${r.program ?? ''}</td>` + // NEW
+              // removed picked_time column previously
+              `<td>${fmt(r.arrived_time)}</td>` + // Check-in Time
               `<td>${fmt(r.checked_time)}</td>` +
               `<td>${r.pickup_person ?? ''}</td>` +
               `<td>${total}</td>` +
               `<td>${status}</td>` +
              '</tr>'
-            );
+            )
           })
-          .join('');
+          .join('')
 
   return `<!doctype html>
 <html>
@@ -110,10 +113,15 @@ export function buildDailyPrintHtml(
     <meta charset="utf-8" />
     <title>Daily Report – ${dateStrForHeader}</title>
     <style>
+      :root { color-scheme: light; }
       body { margin: 16px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      .hdr { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 4px; }
+      .meta { text-align: center; font-size: 12px; margin-bottom: 12px; }
       table { width: 100%; border-collapse: collapse; font-size: 12px; }
       th, td { border: 1px solid #000; padding: 4px 6px; vertical-align: top; }
       th { text-align: left; }
+      @page { margin: 10mm; }
+      @media print { body { margin: 0; } }
     </style>
   </head>
   <body>
@@ -123,6 +131,9 @@ export function buildDailyPrintHtml(
       <thead>${header}</thead>
       <tbody>${body}</tbody>
     </table>
+    <script>
+      window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 0); });
+    </script>
   </body>
 </html>`;
 }
@@ -135,7 +146,7 @@ export default function ReportsPage() {
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
   const [sortBy, setSortBy] = useState<'first'|'last'>('first')
 
-  // 4+ HOURS (range) tab state
+  // 4+ HOURS (range) tab state — defaults to today
   const [rangeStart, setRangeStart] = useState<string>(estDateString(new Date()))
   const [rangeEnd, setRangeEnd] = useState<string>(estDateString(new Date()))
   const [hoursCols, setHoursCols] = useState<string[]>([])
@@ -148,13 +159,7 @@ export default function ReportsPage() {
   }>>([])
   const [hoursLoading, setHoursLoading] = useState(false)
 
-  const [school, setSchool] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
-  const [hideNoActivity, setHideNoActivity] = useState(true)
-  const [hideSkipped, setHideSkipped] = useState(true)
-  const [onlyLongStays, setOnlyLongStays] = useState(false)
-  const [rows, setRows] = useState<Row[]>([])
-  const [busy, setBusy] = useState(false)
-
+  // Display name in table according to current sort toggle
   function fmtStudentName(full: string): string {
     if (sortBy === 'first') return full
     const noParen = full.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim()
@@ -165,7 +170,55 @@ export default function ReportsPage() {
     return `${last}, ${first}`
   }
 
-  // ===== Daily Fetch =====
+  const [school, setSchool] = useState<'All'|'Bain'|'QG'|'MHE'|'MC'>('All')
+  const [hideNoActivity, setHideNoActivity] = useState(true)
+  const [hideSkipped, setHideSkipped] = useState(true)
+  const [onlyLongStays, setOnlyLongStays] = useState(false)
+
+  // shared
+  const [rows, setRows] = useState<Row[]>([])
+  const [busy, setBusy] = useState(false)
+
+  // ===== Approved tab fetch (unchanged) =====
+  useEffect(() => {
+    if (view !== 'approved') return
+    let alive = true
+    ;(async () => {
+      setBusy(true)
+      try {
+        const { data, error } = await supabase
+          .from('students')
+          .select('id, first_name, last_name, school, approved_pickups')
+          .eq('active', true)
+        if (error) throw error
+        const list: Row[] = (data||[]).map((st:any)=> {
+          const apRaw = st.approved_pickups
+          const isString = typeof apRaw === 'string'
+          let apList: string[] | null = null
+          if (Array.isArray(apRaw)) apList = apRaw as string[]
+          else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
+          return {
+            student_id: st.id,
+            student_name: `${st.first_name} ${st.last_name}`,
+            school: st.school ?? '',
+            approved_pickups: apList,
+            __apRawType: isString ? 'string' : 'json',
+          }
+        })
+        if (!alive) return
+        setRows(list)
+      } catch (e) {
+        if (!alive) return
+        console.error('[approved] fetch failed', e)
+        setRows([])
+      } finally {
+        if (alive) setBusy(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [view])
+
+  // ===== Daily fetch (same, with program pulled from school_year) =====
   useEffect(() => {
     if (view !== 'daily') return
     let alive = true
@@ -240,8 +293,8 @@ export default function ReportsPage() {
           return {
             student_id: sid,
             student_name: `${st.first_name} ${st.last_name}`,
-            school: st.school ?? '',
-            program: st.school_year ?? null,
+            school: (st.school as string) ?? '',
+            program: (st.school_year as string) ?? null, // NEW
             picked_time: pickedEarliest.get(sid) || null,
             arrived_time: arrivedEarliest.get(sid) || null,
             checked_time: checked,
@@ -255,6 +308,7 @@ export default function ReportsPage() {
         if (!alive) return
         setRows(toDisplay)
       } catch (e) {
+        if (!alive) return
         console.error('[reports] fetch failed', e)
         setRows([])
       } finally {
@@ -264,7 +318,7 @@ export default function ReportsPage() {
     return () => { alive = false }
   }, [dateStr, view])
 
-  // ===== Daily derived & sorting =====
+  // ===== Daily derived (unchanged logic) =====
   const filteredSorted = useMemo(() => {
     if (view !== 'daily') return []
     let data = [...rows]
@@ -293,30 +347,45 @@ export default function ReportsPage() {
       ;(r as any).__total_str = totalStr
       return r
     })
+    if (onlyLongStays) data = data.filter(r => ((r as any).__total_ms ?? 0) >= fourHoursMs)
+
     const norm = (s: string) => s.toLowerCase().trim()
     const last = (full: string) => {
       const noParen = full.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim()
       const parts = noParen.split(' ')
       return parts.length ? parts[parts.length - 1] : ''
     }
-    return data.sort((a,b)=>{
-      if (sortBy==='first') return norm(a.student_name).localeCompare(norm(b.student_name))
-      return last(a.student_name).localeCompare(last(b.student_name))
-    })
+    return data
+      .map((r, i) => ({ r, i }))
+      .sort((A, B) => {
+        const a = A.r, b = B.r
+        if (sortBy === 'first') {
+          const cmp = norm(a.student_name).localeCompare(norm(b.student_name), undefined, { sensitivity: 'base' })
+          return cmp !== 0 ? cmp : A.i - B.i
+        } else {
+          const cmp = last(a.student_name).localeCompare(last(b.student_name), undefined, { sensitivity: 'base' })
+          return cmp !== 0 ? cmp : A.i - B.i
+        }
+      })
+      .map(x => x.r)
   }, [rows, sortBy, hideNoActivity, hideSkipped, school, onlyLongStays, view])
 
-  // ===== CSV Export =====
+  // ===== CSV (Daily) – add Program after School =====
   function exportCSV() {
     if (view !== 'daily') return
-    const header = ['Student Name','School','Program','Check-in Time','Check-out Time','Picked Up By','Time @ Sunny Days','Current Status']
-    const fmt = (iso?: string | null) => iso ? new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'}).format(new Date(iso)) : ''
+    const header = [
+      'Student Name','School','Program','Check-in Time',
+      'Check-out Time','Picked Up By','Time @ Sunny Days','Current Status',
+    ]
+    const fmt = (iso?: string | null) =>
+      iso ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)) : ''
     const lines = [header.join(',')]
     for (const r of filteredSorted) {
       lines.push([
         `"${r.student_name.replace(/"/g,'""')}"`,
         `"${(r.school ?? '').replace(/"/g,'""')}"`,
-        `"${(r.program ?? '').replace(/"/g,'""')}"`,
-        `"${fmt(r.arrived_time)}"`,
+        `"${(r.program ?? '').replace(/"/g,'""')}"`, // NEW
+        `"${fmt(r.arrived_time)}"`, // Check-in Time
         `"${fmt(r.checked_time)}"`,
         `"${(r.pickup_person ?? '').replace(/"/g,'""')}"`,
         `"${(((r as any).__total_str ?? '') as string).replace(/"/g,'""')}"`,
@@ -324,16 +393,73 @@ export default function ReportsPage() {
       ].join(','))
     }
     const blob = new Blob(["\uFEFF" + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
+    a.href = url
     a.download = `report_${dateStr}.csv`
-    a.click()
+    document.body.appendChild(a); a.click()
+    a.remove(); URL.revokeObjectURL(url)
   }
 
-  // ===== 4+ Hours Run =====
+  // Open a minimal printer-friendly page for Daily (uses updated headers)
+  function printDaily() {
+    if (view !== 'daily') return
+    const html = buildDailyPrintHtml(dateStr, filteredSorted as Row[], fmtStudentName)
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    iframe.src = url
+    document.body.appendChild(iframe)
+    iframe.onload = function () {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      setTimeout(() => { URL.revokeObjectURL(url); iframe.remove() }, 1000)
+    }
+  }
+
+  // === Helpers for the Hours report ===
+
+  // Build inclusive list of YYYY-MM-DD using UTC-noon ticks (DST-safe)
+  function buildDateList(start: string, end: string): string[] {
+    if (!start || !end) return []
+    const [sy, sm, sd] = start.split('-').map(Number)
+    const [ey, em, ed] = end.split('-').map(Number)
+    let cur = Date.UTC(sy, (sm ?? 1) - 1, sd ?? 1, 12, 0, 0)
+    const endUtc = Date.UTC(ey, (em ?? 1) - 1, ed ?? 1, 12, 0, 0)
+    const out: string[] = []
+    if (cur > endUtc) return out
+    while (cur <= endUtc) {
+      out.push(estDateString(new Date(cur)))
+      cur += 24 * 60 * 60 * 1000
+    }
+    return out
+  }
+
+  // mm/dd view label (rendered in EST)
+  function mmdd(yyyy_mm_dd: string): string {
+    const [y, m, d] = yyyy_mm_dd.split('-').map(Number)
+    const utcNoon = Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0)
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date(utcNoon))
+  }
+
+  // Run the 4+ Hours report over a date range → pivoted table (adds Program)
   async function runHours() {
     setHoursLoading(true)
     try {
+      const cols = buildDateList(rangeStart, rangeEnd)
+      setHoursCols(cols)
+
+      if (cols.length === 0) {
+        setHoursRows([])
+        return
+      }
+
+      // Fetch active students for name/school/program lookup
       const { data: students, error: sErr } = await supabase
         .from('students')
         .select('id, first_name, last_name, school, school_year, active')
@@ -343,81 +469,192 @@ export default function ReportsPage() {
       const schoolById = new Map<string,string>()
       const programById = new Map<string,string|null>()
       for (const st of students || []) {
-        nameById.set(st.id as string, `${st.first_name} ${st.last_name}`)
-        schoolById.set(st.id as string, st.school ?? '')
-        programById.set(st.id as string, st.school_year ?? null)
+        const sid = st.id as string
+        nameById.set(sid, `${st.first_name} ${st.last_name}`)
+        schoolById.set(sid, (st.school as string) ?? '')
+        programById.set(sid, (st.school_year as string) ?? null)
       }
 
+      // Pull logs in range
       const { data: logs, error: lErr } = await supabase
         .from('logs')
         .select('student_id, roster_date, action, at, meta')
-        .gte('roster_date', rangeStart).lte('roster_date', rangeEnd)
+        .gte('roster_date', rangeStart)
+        .lte('roster_date', rangeEnd)
         .in('action', ['picked','arrived','checked'])
       if (lErr) throw lErr
 
+      // For each (student, date): earliest start (picked/arrived) and earliest checkout (checked/pickupTime)
       const startMap = new Map<string,string>()
       const endMap = new Map<string,string>()
+      const keyOf = (sid:string, d:string)=>`${d}|${sid}`
       for (const lg of logs || []) {
         const sid = lg.student_id as string
         const d = lg.roster_date as string
         const act = lg.action as string
         const at = lg.at as string
         const meta = (lg as any).meta || {}
-        const eff = (act==='checked' && meta && meta.pickupTime)
+        const effectiveAt = (act==='checked' && meta && meta.pickupTime)
           ? (estLocalToUtcIso(String(meta.pickupTime)) ?? String(meta.pickupTime))
           : at
-        const key = `${d}|${sid}`
-        if (act==='picked'||act==='arrived'){if(!startMap.get(key)||new Date(at)<new Date(startMap.get(key)!))startMap.set(key,at)}
-        if (act==='checked'){if(!endMap.get(key)||new Date(eff)<new Date(endMap.get(key)!))endMap.set(key,eff)}
+        const k = keyOf(sid, d)
+        if (act==='picked' || act==='arrived') {
+          const prev = startMap.get(k)
+          if (!prev || new Date(at) < new Date(prev)) startMap.set(k, at)
+        }
+        if (act==='checked') {
+          const prev = endMap.get(k)
+          if (!prev || new Date(effectiveAt) < new Date(prev)) endMap.set(k, effectiveAt)
+        }
       }
 
-      const cols:string[]=[]
-      {
-        const s=new Date(rangeStart), e=new Date(rangeEnd)
-        for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))cols.push(estDateString(d))
-      }
-      setHoursCols(cols)
+      // Build pivot rows per student with only ≥4h totals populated
+      const rowMap = new Map<string, {
+        student_id:string, student_name:string, school:string, program?: string | null, totals: Record<string,string>
+      }>()
+      const fourHoursMs = 4 * 60 * 60 * 1000
 
-      const rowMap=new Map<string,{student_id:string,student_name:string,school:string,program?:string|null,totals:Record<string,string>}>()
-      const fourHours=4*3600000
-      for(const [key,startIso] of startMap.entries()){
-        const [d,sid]=key.split('|')
-        const endIso=endMap.get(key)
-        if(!endIso)continue
-        const t1=new Date(startIso).getTime(),t2=new Date(endIso).getTime()
-        if(isNaN(t1)||isNaN(t2)||t2<=t1)continue
-        const diff=t2-t1;if(diff<fourHours)continue
-        const pretty=`${Math.floor(diff/3600000)}h ${Math.round((diff%3600000)/60000)}m`
-        if(!rowMap.has(sid))
-          rowMap.set(sid,{student_id:sid,student_name:nameById.get(sid)||sid,school:schoolById.get(sid)||'',program:programById.get(sid),totals:{}})
-        rowMap.get(sid)!.totals[d]=pretty
+      for (const colDate of cols) {
+        for (const [k, startIso] of startMap.entries()) {
+          const [d, sid] = k.split('|')
+          if (d !== colDate) continue
+          const endIso = endMap.get(k)
+          if (!endIso) continue
+          const t0 = new Date(startIso).getTime()
+          const t1 = new Date(endIso).getTime()
+          if (Number.isNaN(t0) || Number.isNaN(t1) || t1 <= t0) continue
+          const total = t1 - t0
+          if (total < fourHoursMs) continue
+
+          const mins = Math.round(total / 60000)
+          const h = Math.floor(mins / 60)
+          const m = mins % 60
+          const pretty = `${h}h ${m}m`
+
+          if (!rowMap.has(sid)) {
+            rowMap.set(sid, {
+              student_id: sid,
+              student_name: nameById.get(sid) || sid,
+              school: schoolById.get(sid) || '',
+              program: programById.get(sid) ?? null, // NEW
+              totals: {}
+            })
+          }
+          rowMap.get(sid)!.totals[colDate] = pretty
+        }
       }
 
-      const out = Array.from(rowMap.values()).sort((a,b)=>{
-        if(sortBy==='first')return a.student_name.localeCompare(b.student_name)
-        const last=(s:string)=>s.split(' ').slice(-1)[0]
-        return last(a.student_name).localeCompare(last(b.student_name))
-      })
+      const out = Array.from(rowMap.values())
+        // leave base order by first name; sorting for display handled by memo below
+        .sort((a,b)=> a.student_name.localeCompare(b.student_name))
+
       setHoursRows(out)
-    } catch(e){console.error('[hours] failed',e);setHoursRows([])}finally{setHoursLoading(false)}
+    } catch (e) {
+      console.error('[hours] fetch failed', e)
+      setHoursRows([])
+      setHoursCols([])
+    } finally {
+      setHoursLoading(false)
+    }
   }
+
+  // Printer-friendly HTML for the Hours report (add Program column)
+  function buildHoursPrintHtml(
+    startStr: string,
+    endStr: string,
+    cols: string[],
+    rows: Array<{student_id:string, student_name:string, school:string, program?: string | null, totals:Record<string,string>}>
+  ): string {
+    const headerCells =
+      '<tr><th>Student Name</th><th>School</th><th>Program</th>' + // NEW
+      cols.map(c => `<th>${mmdd(c)}</th>`).join('') +
+      '</tr>'
+
+    const bodyRows = rows.length === 0
+      ? '<tr><td colspan="' + (3+cols.length) + '" style="text-align:center;padding:8px;">No rows.</td></tr>'
+      : rows.map(r =>
+          '<tr>' +
+            `<td>${fmtStudentName(r.student_name)}</td>` + // apply same sort-format as UI
+            `<td>${r.school}</td>` +
+            `<td>${r.program ?? ''}</td>` + // NEW
+            cols.map(c => `<td>${r.totals[c] || ''}</td>`).join('') +
+          '</tr>'
+        ).join('')
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>4+ Hours Report – ${startStr} to ${endStr}</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 16px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      .hdr { text-align: center; font-weight: 700; font-size: 18px; margin-bottom: 4px; }
+      .meta { text-align: center; font-size: 12px; margin-bottom: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { border: 1px solid #000; padding: 4px 6px; vertical-align: top; }
+      th { text-align: left; }
+      @page { margin: 10mm; }
+      @media print { body { margin: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="hdr">Sunny Days – 4+ Hours Report</div>
+    <div class="meta">Range: ${startStr} → ${endStr}</div>
+    <table>
+      <thead>${headerCells}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <script>
+      window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 0); });
+    </script>
+  </body>
+</html>`
+  }
+
+  // sort-aware print for Hours (use the same sorting the UI shows)
+  function printHours() {
+    if (view !== 'hours') return
+    const html = buildHoursPrintHtml(rangeStart, rangeEnd, hoursCols, hoursRowsSorted)
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    iframe.src = url
+    document.body.appendChild(iframe)
+    iframe.onload = function () {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      setTimeout(() => { URL.revokeObjectURL(url); iframe.remove() }, 1000)
+    }
+  }
+
+  // ===== hoursRows sorted for display by first/last (same toggle as Daily) =====
+  const hoursRowsSorted = useMemo(() => {
+    const arr = [...hoursRows]
+    const norm = (s:string)=>s.toLowerCase().trim()
+    const last = (full: string) => {
+      const noParen = full.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim()
+      const parts = noParen.split(' ')
+      return parts.length ? parts[parts.length - 1] : ''
+    }
+    return arr.sort((a,b)=>{
+      if (sortBy === 'first') {
+        return norm(a.student_name).localeCompare(norm(b.student_name), undefined, { sensitivity:'base' })
+      }
+      const la = last(a.student_name), lb = last(b.student_name)
+      return la.localeCompare(lb, undefined, { sensitivity:'base' })
+    })
+  }, [hoursRows, sortBy])
 
   const fmtCell = (iso?: string|null) =>
     iso ? new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'numeric', minute:'2-digit' }).format(new Date(iso)) : ''
-  const mmdd = (ymd: string) => new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', month:'2-digit', day:'2-digit' }).format(new Date(ymd))
 
-  const hoursRowsSorted = useMemo(()=>{
-    return [...hoursRows].sort((a,b)=>{
-      if(sortBy==='first')return a.student_name.localeCompare(b.student_name)
-      const last=(s:string)=>s.split(' ').slice(-1)[0]
-      return last(a.student_name).localeCompare(last(b.student_name))
-    })
-  },[hoursRows,sortBy])
-
-  // ===== Render UI =====
   return (
     <div className="container report-wrap">
+      {/* toolbar */}
       <div className="card report-toolbar">
+        {/* Row 1: Tabs only */}
         <div className="row wrap gap" style={{alignItems:'center'}}>
           <div className="seg">
             <button className={`seg-btn ${view==='daily'?'on':''}`} onClick={()=>setView('daily')}>Daily</button>
@@ -427,8 +664,9 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {view==='daily'&&(
-          <div className="row wrap gap" style={{alignItems:'center',marginTop:8}}>
+        {/* Row 2: Daily-only controls */}
+        {view==='daily' && (
+          <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
             <label className="label">Date</label>
             <input type="date" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
             <label className="label">Sort</label>
@@ -438,89 +676,152 @@ export default function ReportsPage() {
             </select>
             <label className="label">School</label>
             <div className="seg seg-scroll">
-              {SCHOOL_FILTERS.map(opt=>(
-                <button key={opt} className={`seg-btn ${school===opt?'on':''}`} onClick={()=>setSchool(opt)}>{opt}</button>
+              {SCHOOL_FILTERS.map(opt => (
+                <button
+                  key={opt}
+                  className={`seg-btn ${school===opt?'on':''}`}
+                  onClick={()=>setSchool(opt)}
+                >
+                  {opt}
+                </button>
               ))}
             </div>
-            <label className="row" style={{gap:6}}><input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} /><span className="label">Hide no activity</span></label>
-            <label className="row" style={{gap:6}}><input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} /><span className="label">Hide skipped</span></label>
-            <button className="btn" onClick={exportCSV}>⬇️ CSV</button>
+
+            <label className="row" style={{gap:6}}>
+              <input type="checkbox" checked={hideNoActivity} onChange={e=>setHideNoActivity(e.target.checked)} />
+              <span className="label">Hide no activity</span>
+            </label>
+            <label className="row" style={{gap:6}}>
+              <input type="checkbox" checked={hideSkipped} onChange={e=>setHideSkipped(e.target.checked)} />
+              <span className="label">Hide skipped</span>
+            </label>
+            <label className="row" style={{gap:6}}>
+              <input type="checkbox" checked={onlyLongStays} onChange={e=>setOnlyLongStays(e.target.checked)} />
+              <span className="label">Only show ≥ 4 hours</span>
+            </label>
+            <button className="btn" style={{padding:'6px 10px'}} title="Download CSV" aria-label="Download CSV" onClick={exportCSV}>⬇️ CSV</button>
+            <button className="btn" style={{padding:'6px 10px'}} title="Printer-friendly" aria-label="Printer-friendly Daily Report" data-testid="btn-print-daily" onClick={printDaily}>🖨️ Print</button>
           </div>
         )}
 
-        {view==='hours'&&(
-          <div className="row wrap gap" style={{alignItems:'center',marginTop:8}}>
-            <label className="label">From</label><input type="date" value={rangeStart} onChange={e=>setRangeStart(e.target.value)} />
-            <label className="label">To</label><input type="date" value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} />
+        {/* Row 2 (Hours): range controls + Sort + Print */}
+        {view==='hours' && (
+          <div className="row wrap gap" style={{alignItems:'center', marginTop:8}}>
+            <label className="label">From</label>
+            <input type="date" value={rangeStart} onChange={e=>setRangeStart(e.target.value)} />
+            <label className="label">To</label>
+            <input type="date" value={rangeEnd} onChange={e=>setRangeEnd(e.target.value)} />
             <label className="label">Sort</label>
             <select value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
               <option value="first">First Name</option>
               <option value="last">Last Name</option>
             </select>
             <button className="btn" onClick={runHours} disabled={hoursLoading}>{hoursLoading?'Loading…':'Run'}</button>
+            <button className="btn" onClick={printHours} disabled={hoursCols.length===0 || hoursRows.length===0}>🖨️ Print</button>
           </div>
         )}
-      </div>
+      </div>{/* /toolbar */}
 
-      {view==='daily'&&(
+      {/* DAILY VIEW */}
+      {view === 'daily' && (
         <div className="card report-table-card">
-          {busy?<div className="muted">Loading…</div>:
-          filteredSorted.length===0?<div className="muted" style={{padding:'8px 2px'}}>No rows.</div>:
-          <div className="report-table-scroll">
-            <table className="report-table">
-              <thead><tr>
-                <th>Student Name</th><th>School</th><th>Program</th><th>Check-in Time</th><th>Check-out Time</th><th>Picked Up By</th><th>Time @ Sunny Days</th><th>Current Status</th>
-              </tr></thead>
-              <tbody>
-                {filteredSorted.map(r=>(
-                  <tr key={r.student_id}>
-                    <td>{fmtStudentName(r.student_name)}</td>
-                    <td>{r.school}</td>
-                    <td>{r.program ?? ''}</td>
-                    <td>{fmtCell(r.arrived_time)}</td>
-                    <td>{fmtCell(r.checked_time)}</td>
-                    <td>{r.pickup_person ?? ''}</td>
-                    <td>{(r as any).__total_str ?? ''}</td>
-                    <td>{r.final_status}</td>
+          {busy ? (
+            <div className="muted">Loading…</div>
+          ) : filteredSorted.length === 0 ? (
+            <div className="muted" style={{padding:'8px 2px'}}>No rows for this date.</div>
+          ) : (
+            <div className="report-table-scroll">
+              <table className="report-table">
+                <thead className="report-thead">
+                  <tr>
+                    <th className="col-name">Student Name</th>
+                    <th className="col-school">School</th>
+                    <th className="col-school">Program</th>{/* NEW */}
+                    {/* removed School Pickup Time */}
+                    <th className="col-time">Check-in Time</th>
+                    <th className="col-time">Check-out Time</th>
+                    <th className="col-person">Picked Up By</th>
+                    <th className="col-time">Time @ Sunny Days</th>
+                    <th className="col-status">Current Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>}
+                </thead>
+                <tbody className="report-tbody">
+                  {filteredSorted.map((r) => (
+                    <tr key={r.student_id}>
+                      <td className="cell-name">{fmtStudentName(r.student_name)}</td>
+                      <td className="cell-school">{r.school}</td>
+                      <td className="cell-school">{r.program ?? ''}</td>{/* NEW */}
+                      {/* Check-in = arrived_time */}
+                      <td className="cell-time">{fmtCell(r.arrived_time)}</td>
+                      <td className="cell-time">{fmtCell(r.checked_time)}</td>
+                      <td className="cell-person">{r.pickup_person || ''}</td>
+                      <td className="cell-time">{(r as any).__total_str || ''}</td>
+                      <td className="cell-status">
+                        <span className={`pill ${String(r.final_status||'').toLowerCase()}`}>
+                          {String(r.final_status||'').toLowerCase()==='checked' ? 'checked-out' : (r.final_status || '')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {view==='hours'&&(
+      {/* 4+ HOURS RANGE VIEW (pivot) */}
+      {view === 'hours' && (
         <div className="card report-table-card">
-          {hoursLoading?<div className="muted">Loading…</div>:
-          hoursRowsSorted.length===0?<div className="muted" style={{padding:'8px 2px'}}>No rows.</div>:
-          <div className="report-table-scroll">
-            <table className="report-table">
-              <thead><tr><th>Student Name</th><th>School</th><th>Program</th>{hoursCols.map(d=><th key={d}>{mmdd(d)}</th>)}</tr></thead>
-              <tbody>
-                {hoursRowsSorted.map(r=>(
-                  <tr key={r.student_id}>
-                    <td>{fmtStudentName(r.student_name)}</td>
-                    <td>{r.school}</td>
-                    <td>{r.program ?? ''}</td>
-                    {hoursCols.map(d=><td key={d}>{r.totals[d]||''}</td>)}
+          {hoursLoading ? (
+            <div className="muted">Loading…</div>
+          ) : hoursRowsSorted.length === 0 ? (
+            <div className="muted" style={{padding:'8px 2px'}}>No rows.</div>
+          ) : (
+            <div className="report-table-scroll" data-testid="hours-table-scroll">
+              <table className="report-table">
+                <thead className="report-thead">
+                  <tr>
+                    <th className="col-name">Student Name</th>
+                    <th className="col-school">School</th>
+                    <th className="col-school">Program</th>{/* NEW */}
+                    {hoursCols.map(d => (
+                      <th key={d} className="col-time">{mmdd(d)}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>}
+                </thead>
+                <tbody className="report-tbody">
+                  {hoursRowsSorted.map((r) => (
+                    <tr key={r.student_id}>
+                      <td className="cell-name">{fmtStudentName(r.student_name)}</td>
+                      <td className="cell-school">{r.school}</td>
+                      <td className="cell-school">{r.program ?? ''}</td>{/* NEW */}
+                      {hoursCols.map(d => (
+                        <td key={d} className="cell-time">{r.totals[d] || ''}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {view==='approved'&&(
-        <ApprovedPickupsBlock rows={rows} busy={busy} setRows={setRows}/>
+      {/* APPROVED PICKUPS */}
+      {view === 'approved' && (
+        <ApprovedPickupsBlock rows={rows} busy={busy} setRows={setRows} />
       )}
 
-      {view==='history'&&(<StudentHistoryBlock/>)}
+      {/* STUDENT HISTORY */}
+      {view === 'history' && (
+        <StudentHistoryBlock />
+      )}
     </div>
   )
 }
-/* ----- Approved Pickups row/block (same behavior as v1.24) ----- */
+
+/* ----- Approved Pickups row/block kept identical to your prior version ----- */
 function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) {
   const [editing, setEditing] = React.useState(false)
   const [items, setItems] = React.useState<string[]>(
@@ -535,7 +836,6 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         ? { approved_pickups: JSON.stringify(clean) }
         : { approved_pickups: clean }
 
-    // Preferred RPC path (RLS-safe); fallback to direct update if missing
     const { error } = await supabase.rpc(
       'rpc_update_student_approved_pickups',
       { p_student_id: row.student_id, p_pickups: clean }
@@ -567,7 +867,6 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
         <td className="cell-person" colSpan={2} data-testid="ap-editor-spanning-cell">
           <div className="row"
                style={{display:'grid', gridTemplateColumns:'1fr 320px', gap:12, alignItems:'start'}}>
-            {/* LEFT: current list with remove buttons */}
             <div className="col" style={{gap:8}}>
               <div className="row" style={{gap:6, flexWrap:'wrap'}}>
                 {items.length===0 ? <span className="muted">None</span> :
@@ -582,7 +881,6 @@ function ApprovedRow({ row, onSaved }:{ row: Row, onSaved: ()=>Promise<void> }) 
                 }
               </div>
             </div>
-            {/* RIGHT: add box + actions */}
             <div className="col" style={{gap:8}}>
               <div className="row" style={{gap:6, flexWrap:'wrap'}}>
                 <input
@@ -658,29 +956,23 @@ function ApprovedPickupsBlock({rows, busy, setRows}:{rows:Row[], busy:boolean, s
               {rows
                 .slice()
                 .sort((a,b)=>a.student_name.localeCompare(b.student_name))
-                .map((r)=>(
-                  <ApprovedRow
-                    key={r.student_id}
-                    row={r}
-                    onSaved={async ()=>{
-                      const { data: fresh, error } = await supabase
-                        .from('students')
-                        .select('id, approved_pickups')
-                        .eq('id', r.student_id)
-                        .maybeSingle()
-                      if (!error && fresh) {
-                        const apRaw = (fresh as any).approved_pickups
-                        const isString = typeof apRaw === 'string'
-                        let apList: string[] | null = null
-                        if (Array.isArray(apRaw)) apList = apRaw as string[]
-                        else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
-                        setRows(prev => prev.map(p => p.student_id===r.student_id
-                          ? {...p, approved_pickups: apList, __apRawType: isString ? 'string' : 'json'}
-                          : p))
-                      }
-                    }}
-                  />
-                ))}
+                .map((r)=>(<ApprovedRow key={r.student_id} row={r} onSaved={async ()=>{
+                  const { data: fresh, error } = await supabase
+                    .from('students')
+                    .select('id, approved_pickups')
+                    .eq('id', r.student_id)
+                    .maybeSingle()
+                  if (!error && fresh) {
+                    const apRaw = (fresh as any).approved_pickups
+                    const isString = typeof apRaw === 'string'
+                    let apList: string[] | null = null
+                    if (Array.isArray(apRaw)) apList = apRaw as string[]
+                    else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
+                    setRows(prev => prev.map(p => p.student_id===r.student_id
+                      ? {...p, approved_pickups: apList, __apRawType: isString ? 'string' : 'json'}
+                      : p))
+                  }
+                }} />))}
             </tbody>
           </table>
         </div>
@@ -689,7 +981,6 @@ function ApprovedPickupsBlock({rows, busy, setRows}:{rows:Row[], busy:boolean, s
   )
 }
 
-/* ----- Student History (same behavior as v1.24) ----- */
 function StudentHistoryBlock() {
   const [studentId, setStudentId] = React.useState<string>('')
   const [start, setStart] = React.useState<string>(() => estDateString(new Date()))
@@ -701,11 +992,7 @@ function StudentHistoryBlock() {
   React.useEffect(()=>{(async()=>{
     const { data, error } = await supabase.from('students').select('id, first_name, last_name, active').eq('active', true)
     if (!error && data) {
-      setStudents(
-        data
-          .map(s=>({id:s.id as string, name:`${s.first_name} ${s.last_name}`}))
-          .sort((a,b)=>a.name.localeCompare(b.name))
-      )
+      setStudents(data.map(s=>({id:s.id as string, name:`${s.first_name} ${s.last_name}`})).sort((a,b)=>a.name.localeCompare(b.name)))
     }
   })()},[])
 
@@ -722,8 +1009,7 @@ function StudentHistoryBlock() {
         .order('roster_date', { ascending: true })
         .order('at', { ascending: true })
       if (error) throw error
-
-      // client-side guard to respect edited pickupTime dates inside meta
+      // client-side guard to respect edited pickupTime dates
       const filtered = (data || []).filter((r: any) => {
         const inRange = (ymd: string) => (ymd >= start && ymd <= end)
         if (r.action === 'checked' && r.meta?.pickupTime) {
@@ -744,7 +1030,6 @@ function StudentHistoryBlock() {
   async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
     try {
       if (action === 'checked') {
-        // Preferred RPC for pickupTime
         const { error } = await supabase.rpc('rpc_set_log_pickup_time', {
           p_log_id: logId,
           p_pickup_time: local,
@@ -761,7 +1046,6 @@ function StudentHistoryBlock() {
           if (uerr || !upd) throw new Error('No row updated (RPC missing/RLS?)')
         }
       } else {
-        // picked/arrived use 'at' column; convert local NY wall time → UTC ISO
         const iso = estLocalToUtcIso(local) ?? new Date().toISOString()
         const { error } = await supabase.rpc('rpc_set_log_at', {
           p_log_id: logId,
@@ -855,4 +1139,3 @@ function StudentHistoryBlock() {
     </div>
   )
 }
-
