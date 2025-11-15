@@ -1,3 +1,4 @@
+// src/pages/AdminStudentsPage.tsx
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -6,7 +7,7 @@ type Student = {
   first_name: string;
   last_name: string;
   school: string | null;
-  school_year: string | null;      // “Program”
+  school_year: string | null; // “Program”
   active: boolean;
   no_bus_days: string[] | null;
 };
@@ -42,7 +43,9 @@ export default function AdminStudentsPage() {
     setLoading(false);
   }
 
-  useEffect(() => { loadStudents(); }, []);
+  useEffect(() => {
+    loadStudents();
+  }, []);
 
   function resetForm() {
     setEditingId(null);
@@ -74,8 +77,6 @@ export default function AdminStudentsPage() {
       no_bus_days: noBusDays,
     };
 
-    console.log('[AdminStudents] submitting payload:', payload);
-
     if (!payload.first_name || !payload.last_name) {
       alert('First and last name are required');
       return;
@@ -99,7 +100,7 @@ export default function AdminStudentsPage() {
 
     if (result.error) {
       console.error('[AdminStudents] save error:', result.error);
-      alert('Save failed — check console for details.');
+      alert('Save failed — check console.');
       return;
     }
 
@@ -119,74 +120,106 @@ export default function AdminStudentsPage() {
   }
 
   function toggleNoBus(day: string) {
-    setNoBusDays(prev =>
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    setNoBusDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
     );
   }
 
   return (
     <div className="container">
+
       <div className="card" style={{ marginBottom: 20 }}>
-        <h2 className="section-title">Student Management</h2>
+        <h2 className="section-title" style={{ marginBottom: 16 }}>
+          Student Management
+        </h2>
 
         <div className="two-col" style={{ gap: 20 }}>
-          {/* ========== FORM ========== */}
-          <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ marginBottom: 12 }}>
+
+          {/* ================= ADD STUDENT (Improved UI) ================= */}
+          <div className="card" style={{ padding: 20 }}>
+            <h3 style={{ marginBottom: 16, textAlign: 'left' }}>
               {editingId ? 'Edit Student' : 'Add Student'}
             </h3>
 
-            <div className="col" style={{ gap: 10 }}>
-              <label className="label">First Name</label>
-              <input
-                type="text"
-                value={firstName}
-                onChange={e => setFirstName(e.target.value)}
-              />
+            <div className="col" style={{ gap: 14, maxWidth: 420 }}>
 
-              <label className="label">Last Name</label>
-              <input
-                type="text"
-                value={lastName}
-                onChange={e => setLastName(e.target.value)}
-              />
+              {/* Row: First + Last Name */}
+              <div className="row" style={{ gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="label">First Name</label>
+                  <input
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
+                </div>
 
-              <label className="label">School</label>
-              <input
-                type="text"
-                value={school}
-                onChange={e => setSchool(e.target.value)}
-              />
-
-              <label className="label">Program (School Year)</label>
-              <input
-                type="text"
-                value={program}
-                onChange={e => setProgram(e.target.value)}
-              />
-
-              <label className="label">Active</label>
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={e => setActive(e.target.checked)}
-              />
-
-              <label className="label">No-Bus Days:</label>
-              <div className="row wrap" style={{ gap: 6 }}>
-                {weekdayOptions.map(d => (
-                  <label key={d} className="chip" style={{ cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={noBusDays.includes(d)}
-                      onChange={() => toggleNoBus(d)}
-                      style={{ marginRight: 4 }}
-                    />
-                    {d}
-                  </label>
-                ))}
+                <div style={{ flex: 1 }}>
+                  <label className="label">Last Name</label>
+                  <input
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
+                </div>
               </div>
 
+              {/* School */}
+              <div>
+                <label className="label">School</label>
+                <input
+                  value={school}
+                  onChange={(e) => setSchool(e.target.value)}
+                />
+              </div>
+
+              {/* Program */}
+              <div>
+                <label className="label">Program (School Year)</label>
+                <input
+                  value={program}
+                  onChange={(e) => setProgram(e.target.value)}
+                />
+              </div>
+
+              {/* Active */}
+              <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+                <label className="label">Active</label>
+                <input
+                  type="checkbox"
+                  checked={active}
+                  onChange={(e) => setActive(e.target.checked)}
+                />
+              </div>
+
+              {/* No-bus days */}
+              <div>
+                <label className="label" style={{ marginBottom: 6 }}>
+                  No-Bus Days
+                </label>
+                <div className="row wrap" style={{ gap: 8 }}>
+                  {weekdayOptions.map((d) => (
+                    <label
+                      key={d}
+                      className="chip"
+                      style={{
+                        padding: '6px 10px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={noBusDays.includes(d)}
+                        onChange={() => toggleNoBus(d)}
+                      />
+                      {d}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Buttons */}
               <div className="row" style={{ gap: 10, marginTop: 10 }}>
                 <button className="btn primary" onClick={saveStudent}>
                   {editingId ? 'Save Changes' : 'Add Student'}
@@ -198,9 +231,9 @@ export default function AdminStudentsPage() {
             </div>
           </div>
 
-          {/* ========== TABLE ========== */}
-          <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ marginBottom: 12 }}>All Students</h3>
+          {/* ================= STUDENTS TABLE ================= */}
+          <div className="card" style={{ padding: 20 }}>
+            <h3 style={{ marginBottom: 12, textAlign: 'left' }}>All Students</h3>
 
             {loading ? (
               <div className="muted">Loading…</div>
@@ -209,16 +242,16 @@ export default function AdminStudentsPage() {
                 <table className="report-table">
                   <thead>
                     <tr>
-                      <th>Name</th>
-                      <th>School</th>
-                      <th>Program</th>
-                      <th>Active</th>
-                      <th>No-Bus</th>
-                      <th>Actions</th>
+                      <th style={{ textAlign: 'left' }}>Name</th>
+                      <th style={{ textAlign: 'left' }}>School</th>
+                      <th style={{ textAlign: 'left' }}>Program</th>
+                      <th style={{ textAlign: 'left' }}>Active</th>
+                      <th style={{ textAlign: 'left' }}>No-Bus</th>
+                      <th style={{ textAlign: 'left' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {students.map(st => (
+                    {students.map((st) => (
                       <tr key={st.id}>
                         <td>{st.first_name} {st.last_name}</td>
                         <td>{st.school}</td>
@@ -226,8 +259,16 @@ export default function AdminStudentsPage() {
                         <td>{st.active ? 'Yes' : 'No'}</td>
                         <td>{(st.no_bus_days || []).join(', ')}</td>
                         <td>
-                          <button className="btn" onClick={() => fillForm(st)}>Edit</button>
-                          <button className="btn" style={{ marginLeft: 6 }} onClick={() => deleteStudent(st.id)}>Delete</button>
+                          <button className="btn" onClick={() => fillForm(st)}>
+                            Edit
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ marginLeft: 6 }}
+                            onClick={() => deleteStudent(st.id)}
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
