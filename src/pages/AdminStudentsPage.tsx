@@ -522,7 +522,6 @@ function ApprovedPickupsTab() {
         >
           <option value="first">First Name</option>
           <option value="last">Last Name</option>
-          <option value="school">School</option>
         </select>
       </div>
 
