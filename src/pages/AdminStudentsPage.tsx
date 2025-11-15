@@ -408,7 +408,7 @@ function ApprovedPickupsTab() {
 
   // NEW — Independent filters
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"first" | "last" | "school">("first");
+  const [sortBy, setSortBy] = useState<"first" | "last" >("first");
 
   useEffect(() => {
     (async () => {
@@ -456,9 +456,6 @@ function ApprovedPickupsTab() {
     }
 
     out.sort((a, b) => {
-      if (sortBy === "school") {
-        return (a.school || "").localeCompare(b.school || "");
-      }
 
       if (sortBy === "last") {
         return a.last_name.toLowerCase().localeCompare(b.last_name.toLowerCase());
