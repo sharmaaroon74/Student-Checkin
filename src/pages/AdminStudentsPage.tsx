@@ -6,166 +6,288 @@ type Student = {
   id?: string
   first_name: string
   last_name: string
-  room_id?: string | null
   school?: string | null
-  approved_pickups?: string[] | null
+  school_year?: string | null   // Program
   no_bus_days?: string[] | null
   active: boolean
-  school_year?: string | null
 }
-
-const SCHOOL_OPTIONS = ['Bain','QG','MHE','MC']
-const PROGRAM_OPTIONS = ['Before School','After School','Full Day','Summer Camp']
 
 export default function AdminStudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [editing, setEditing] = useState<Student | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<boolean>(false)
 
-  // Load all students
-  async function load() {
+  // -------------------------------
+  // Load All Students
+  // -------------------------------
+  async function loadStudents() {
     setBusy(true)
     try {
-      const { data, error } = await supabase.from('students')
-        .select('id, first_name, last_name, room_id, school, approved_pickups, no_bus_days, active, school_year')
+      const { data, error } = await supabase
+        .from('students')
+        .select('id, first_name, last_name, school, school_year, no_bus_days, active')
         .order('first_name', { ascending: true })
+
       if (error) throw error
       setStudents(data as Student[])
-    } catch(e) {
-      console.error('[AdminStudents] load failed', e)
-      alert('Failed to load students.')
-    } finally { setBusy(false) }
+    } catch (e) {
+      console.error('[AdminStudents] load error:', e)
+      alert('Failed to load students. Check console.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  useEffect(()=>{ load() },[])
+  useEffect(() => { loadStudents() }, [])
 
-  function resetForm() {
+  // -------------------------------
+  // Reset / Start Add Flow
+  // -------------------------------
+  function startAdd() {
     setEditing({
-      first_name:'', last_name:'', room_id:null, school:null,
-      approved_pickups:[], no_bus_days:[], active:true, school_year:null
+      first_name: '',
+      last_name: '',
+      school: '',
+      school_year: '',
+      no_bus_days: [],
+      active: true,
     })
   }
 
-  async function save() {
+  // -------------------------------
+  // Save Student (Insert or Update)
+  // -------------------------------
+  async function saveStudent() {
     if (!editing) return
-    const rec = { ...editing }
+
+    const payload = {
+      first_name: editing.first_name.trim(),
+      last_name: editing.last_name.trim(),
+      school: editing.school?.trim() || null,
+      school_year: editing.school_year?.trim() || null,
+      no_bus_days: editing.no_bus_days || [],
+      active: editing.active
+    }
+
+    if (!payload.first_name || !payload.last_name) {
+      alert('First name and last name cannot be empty.')
+      return
+    }
+
     setBusy(true)
     try {
-      if (rec.id) {
-        const { error } = await supabase.from('students').update(rec).eq('id', rec.id)
+      if (editing.id) {
+        // Update
+        const { error } = await supabase
+          .from('students')
+          .update(payload)
+          .eq('id', editing.id)
         if (error) throw error
       } else {
-        const { error } = await supabase.from('students').insert(rec)
+        // Insert
+        const { error } = await supabase
+          .from('students')
+          .insert(payload)
         if (error) throw error
       }
+
       setEditing(null)
-      await load()
-    } catch(e) {
-      console.error('[AdminStudents] save failed', e)
+      await loadStudents()
+    } catch (e) {
+      console.error('[AdminStudents] save error:', e)
       alert('Save failed. See console.')
-    } finally { setBusy(false) }
+    } finally {
+      setBusy(false)
+    }
   }
 
-  async function remove(id: string) {
-    if (!window.confirm('Delete this student?')) return
+  // -------------------------------
+  // Delete Student
+  // -------------------------------
+  async function deleteStudent(id: string) {
+    if (!window.confirm('Are you sure you want to delete this student?')) return
+
     setBusy(true)
     try {
-      const { error } = await supabase.from('students').delete().eq('id', id)
+      const { error } = await supabase
+        .from('students')
+        .delete()
+        .eq('id', id)
       if (error) throw error
-      await load()
-    } catch(e) {
-      console.error('[AdminStudents] delete failed', e)
+
+      await loadStudents()
+    } catch (e) {
+      console.error('[AdminStudents] delete error:', e)
       alert('Delete failed.')
-    } finally { setBusy(false) }
+    } finally {
+      setBusy(false)
+    }
   }
 
+  // -------------------------------
+  // Render
+  // -------------------------------
   return (
     <div className="container report-wrap">
-      <div className="card report-toolbar">
-        <div className="row" style={{justifyContent:'space-between',alignItems:'center'}}>
-          <h2>Student Management</h2>
-          <button className="btn primary" onClick={resetForm}>➕ Add Student</button>
+
+      {/* -------------------------------------- */}
+      {/* Header / Toolbar */}
+      {/* -------------------------------------- */}
+      <div className="card report-toolbar" style={{ marginBottom: 12 }}>
+        <div
+          className="row"
+          style={{ justifyContent: 'space-between', alignItems: 'center' }}
+        >
+          <h2 style={{ margin: 0 }}>Student Management</h2>
+
+          <button className="btn primary" onClick={startAdd}>
+            ➕ Add Student
+          </button>
         </div>
       </div>
 
+      {/* -------------------------------------- */}
+      {/* Add / Edit Form */}
+      {/* -------------------------------------- */}
       {editing && (
-        <div className="card" style={{marginTop:12}}>
-          <h3>{editing.id ? 'Edit Student' : 'Add Student'}</h3>
-          <div className="col" style={{gap:8, maxWidth:600}}>
-            <label>First Name</label>
-            <input value={editing.first_name} onChange={e=>setEditing({...editing,first_name:e.target.value})} />
+        <div className="card" style={{ marginBottom: 18, padding: '18px 20px' }}>
+          <h3 style={{ marginTop: 0 }}>
+            {editing.id ? 'Edit Student' : 'Add Student'}
+          </h3>
 
-            <label>Last Name</label>
-            <input value={editing.last_name} onChange={e=>setEditing({...editing,last_name:e.target.value})} />
+          <div className="col" style={{ gap: 10, maxWidth: 500 }}>
 
-            <label>Room ID</label>
-            <input value={editing.room_id ?? ''} onChange={e=>setEditing({...editing,room_id:e.target.value})} />
+            {/* First Name */}
+            <label className="label">First Name</label>
+            <input
+              className="input"
+              value={editing.first_name}
+              onChange={(e) =>
+                setEditing({ ...editing, first_name: e.target.value })
+              }
+            />
 
-            <label>School</label>
-            <select value={editing.school ?? ''} onChange={e=>setEditing({...editing,school:e.target.value||null})}>
-              <option value="">— Select —</option>
-              {SCHOOL_OPTIONS.map(s=> <option key={s} value={s}>{s}</option>)}
-            </select>
+            {/* Last Name */}
+            <label className="label">Last Name</label>
+            <input
+              className="input"
+              value={editing.last_name}
+              onChange={(e) =>
+                setEditing({ ...editing, last_name: e.target.value })
+              }
+            />
 
-            <label>Program</label>
-            <select value={editing.school_year ?? ''} onChange={e=>setEditing({...editing,school_year:e.target.value||null})}>
-              <option value="">— Select —</option>
-              {PROGRAM_OPTIONS.map(p=> <option key={p} value={p}>{p}</option>)}
-            </select>
+            {/* School */}
+            <label className="label">School</label>
+            <input
+              className="input"
+              placeholder="Bain / QG / MHE / MC"
+              value={editing.school ?? ''}
+              onChange={(e) =>
+                setEditing({ ...editing, school: e.target.value })
+              }
+            />
 
-            <label>Approved Pickups (comma separated)</label>
-            <input value={(editing.approved_pickups||[]).join(', ')} onChange={e=>
-              setEditing({...editing,approved_pickups:e.target.value.split(',').map(s=>s.trim()).filter(Boolean)})} />
+            {/* Program */}
+            <label className="label">Program (School Year)</label>
+            <input
+              className="input"
+              placeholder="After School / Before School / Full Day etc."
+              value={editing.school_year ?? ''}
+              onChange={(e) =>
+                setEditing({ ...editing, school_year: e.target.value })
+              }
+            />
 
-            <label>No Bus Days (comma separated weekdays)</label>
-            <input value={(editing.no_bus_days||[]).join(', ')} onChange={e=>
-              setEditing({...editing,no_bus_days:e.target.value.split(',').map(s=>s.trim()).filter(Boolean)})} />
+            {/* No Bus Days */}
+            <label className="label">No Bus Days (comma separated)</label>
+            <input
+              className="input"
+              placeholder="Mon, Tue, Wed"
+              value={(editing.no_bus_days || []).join(', ')}
+              onChange={(e) =>
+                setEditing({
+                  ...editing,
+                  no_bus_days: e.target.value
+                    .split(',')
+                    .map((x) => x.trim())
+                    .filter(Boolean),
+                })
+              }
+            />
 
-            <label className="row" style={{gap:6,alignItems:'center'}}>
-              <input type="checkbox" checked={editing.active}
-                onChange={e=>setEditing({...editing,active:e.target.checked})}/>
+            {/* Active Toggle */}
+            <label className="row" style={{ gap: 8, marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={editing.active}
+                onChange={(e) =>
+                  setEditing({ ...editing, active: e.target.checked })
+                }
+              />
               <span>Active</span>
             </label>
 
-            <div className="row" style={{gap:8,marginTop:12}}>
-              <button className="btn primary" onClick={save} disabled={busy}>💾 Save</button>
-              <button className="btn" onClick={()=>setEditing(null)}>Cancel</button>
+            {/* Buttons */}
+            <div className="row" style={{ gap: 10, marginTop: 10 }}>
+              <button className="btn primary" disabled={busy} onClick={saveStudent}>
+                💾 Save
+              </button>
+              <button className="btn" onClick={() => setEditing(null)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="card report-table-card" style={{marginTop:12}}>
+      {/* -------------------------------------- */}
+      {/* Students Table */}
+      {/* -------------------------------------- */}
+      <div className="card report-table-card">
         {busy && <div className="muted">Loading...</div>}
-        {!busy && students.length===0 && <div className="muted">No students.</div>}
-        {!busy && students.length>0 && (
+
+        {!busy && students.length === 0 && (
+          <div className="muted" style={{ padding: 10 }}>
+            No students found.
+          </div>
+        )}
+
+        {!busy && students.length > 0 && (
           <div className="report-table-scroll">
             <table className="report-table">
-              <thead>
+              <thead className="report-thead">
                 <tr>
                   <th>Name</th>
                   <th>School</th>
                   <th>Program</th>
-                  <th>Room ID</th>
                   <th>Active</th>
-                  <th>Actions</th>
+                  <th style={{ width: 140 }}>Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {students.map(s=>(
+
+              <tbody className="report-tbody">
+                {students.map((s) => (
                   <tr key={s.id}>
                     <td>{s.first_name} {s.last_name}</td>
                     <td>{s.school ?? ''}</td>
                     <td>{s.school_year ?? ''}</td>
-                    <td>{s.room_id ?? ''}</td>
                     <td>{s.active ? '✅' : '❌'}</td>
+
                     <td>
-                      <button className="btn" onClick={()=>setEditing({...s})}>Edit</button>
-                      <button className="btn" onClick={()=>remove(s.id!)}>🗑️</button>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn" onClick={() => setEditing({ ...s })}>
+                          Edit
+                        </button>
+                        <button className="btn" onClick={() => deleteStudent(s.id!)}>
+                          🗑️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
+
             </table>
           </div>
         )}
