@@ -9,6 +9,7 @@ import ReportsPage from './pages/ReportsPage'
 import Login from './Login'
 import { useRealtimeRoster } from './hooks/useRealtimeRoster'
 import logo from './assets/sunnydays-logo.png'
+import AdminStudentsPage from './pages/AdminStudentsPage'
 
 // NEW: stability/auth hardening helpers
 import { verifySession } from './lib/sessionGuard'
@@ -17,7 +18,7 @@ import { startAuthMonitor } from './lib/authEvents'
 import { startBootstrapWatchdog } from './lib/watchdog'
 import { forceLogout } from './lib/forceLogout'
 
-type Page = 'bus' | 'center' | 'skip' | 'reports'
+type Page = 'bus' | 'center' | 'skip' | 'reports' | 'adminStudents'
 type Role = 'admin' | 'staff' | 'driver'
 const ENFORCE_ROLES: boolean = import.meta.env.VITE_ENFORCE_ROLES === 'true'
 
@@ -26,6 +27,7 @@ const PERMS: Record<Page, Role[]> = {
   center: ['staff','admin'],
   skip: ['admin'],
   reports: ['admin'],
+  adminStudents: ['admin'],
 }
 
 function todayKeyEST(): string {
@@ -483,6 +485,10 @@ export default function App() {
           )}
         </div>
 
+          {(!ENFORCE_ROLES || (role === 'admin')) && (
+            <button className={page==='adminStudents'?'btn primary':'btn'} onClick={()=>setPage('adminStudents')}>👤 Students</button>
+          )}
+
         <div className="row gap" style={{ marginLeft: 'auto', alignItems: 'center' }}>
           <span className="chip">{todayESTLabel()}</span>
           <button
@@ -526,6 +532,11 @@ export default function App() {
       )}
 
       {page === 'reports' && <ReportsPage />}
+
+      {page === 'adminStudents' && (
+        <AdminStudentsPage />
+      )}
+
     </div>
   )
 }
