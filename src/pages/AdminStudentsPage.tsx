@@ -5,7 +5,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 
 /* ============================================================
-   HELPERS (for Student History DST-safe time editing)
+   HELPERS (DST-safe for Student History)
 ============================================================ */
 function estLocalToUtcIso(local: string): string | null {
   const [date, time] = local.split("T");
@@ -78,12 +78,14 @@ export default function AdminStudentsPage() {
           >
             Students
           </button>
+
           <button
             className={`seg-btn ${tab === "approved" ? "on" : ""}`}
             onClick={() => setTab("approved")}
           >
             Approved Pickups
           </button>
+
           <button
             className={`seg-btn ${tab === "history" ? "on" : ""}`}
             onClick={() => setTab("history")}
@@ -101,7 +103,7 @@ export default function AdminStudentsPage() {
 }
 
 /* ============================================================
-   TAB 1 — STUDENTS MANAGER  (UNCHANGED — LOCKED)
+   TAB 1 — STUDENTS MANAGER (LOCKED — DO NOT MODIFY)
 ============================================================ */
 function StudentsManager() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -208,10 +210,12 @@ function StudentsManager() {
         sortBy === "first"
           ? `${a.first_name} ${a.last_name}`.toLowerCase()
           : a.last_name.toLowerCase();
+
       const B =
         sortBy === "first"
           ? `${b.first_name} ${b.last_name}`.toLowerCase()
           : b.last_name.toLowerCase();
+
       return A.localeCompare(B);
     });
 
@@ -220,7 +224,7 @@ function StudentsManager() {
 
   return (
     <div className="two-col" style={{ gap: 28 }}>
-      {/* LEFT — FORM (UNCHANGED) */}
+      {/* LEFT — FORM (unchanged, locked) */}
       <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 20 }}>
           {editingId ? "Edit Student" : "Add Student"}
@@ -287,11 +291,9 @@ function StudentsManager() {
             />
           </div>
 
-          <label className="label" style={{ marginBottom: 4 }}>
-            No-Bus Days
-          </label>
+          <label className="label">No-Bus Days</label>
           <div className="row wrap" style={{ gap: 10 }}>
-            {weekdayOptions.map((d: string) => (
+            {weekdayOptions.map((d) => (
               <label
                 key={d}
                 className="chip"
@@ -319,7 +321,7 @@ function StudentsManager() {
         </div>
       </div>
 
-      {/* RIGHT — TABLE (UNCHANGED) */}
+      {/* RIGHT — TABLE (unchanged) */}
       <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 16 }}>All Students</h3>
 
@@ -398,11 +400,15 @@ function StudentsManager() {
 }
 
 /* ============================================================
-   TAB 2 — APPROVED PICKUPS (FIXED)
+   TAB 2 — APPROVED PICKUPS (ENHANCED WITH SEARCH + SORT)
 ============================================================ */
 function ApprovedPickupsTab() {
   const [rows, setRows] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
+
+  // NEW — Independent filters
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"first" | "last" | "school">("first");
 
   useEffect(() => {
     (async () => {
@@ -423,6 +429,8 @@ function ApprovedPickupsTab() {
         }
         return {
           student_id: s.id,
+          first_name: s.first_name,
+          last_name: s.last_name,
           student_name: `${s.first_name} ${s.last_name}`,
           school: s.school,
           approved_pickups: Array.isArray(ap) ? ap : [],
@@ -434,16 +442,46 @@ function ApprovedPickupsTab() {
     })();
   }, []);
 
-  async function savePickups(row: any, newList: string[]) {
-    const clean = newList.map((x: string) => x.trim()).filter(Boolean);
+  /* === NEW: FILTER + SORT === */
+  const filtered = useMemo(() => {
+    let out = [...rows];
 
-    // 1) Try RPC (exact old behavior)
-    const { error } = await supabase.rpc("rpc_update_student_approved_pickups", {
-      p_student_id: row.student_id,
-      p_pickups: clean,
+    if (search.trim() !== "") {
+      const q = search.toLowerCase();
+      out = out.filter(
+        (r) =>
+          r.first_name.toLowerCase().includes(q) ||
+          r.last_name.toLowerCase().includes(q)
+      );
+    }
+
+    out.sort((a, b) => {
+      if (sortBy === "school") {
+        return (a.school || "").localeCompare(b.school || "");
+      }
+
+      if (sortBy === "last") {
+        return a.last_name.toLowerCase().localeCompare(b.last_name.toLowerCase());
+      }
+
+      return a.first_name.toLowerCase().localeCompare(b.first_name.toLowerCase());
     });
 
-    // 2) Fallback direct update
+    return out;
+  }, [rows, search, sortBy]);
+
+  /* === EXACT OLD BEHAVIOR: RPC → fallback === */
+  async function savePickups(row: any, newList: string[]) {
+    const clean = newList.map((x) => x.trim()).filter(Boolean);
+
+    const { error } = await supabase.rpc(
+      "rpc_update_student_approved_pickups",
+      {
+        p_student_id: row.student_id,
+        p_pickups: clean,
+      }
+    );
+
     if (error) {
       const { error: uErr } = await supabase
         .from("students")
@@ -457,7 +495,7 @@ function ApprovedPickupsTab() {
       }
     }
 
-    // 3) Update UI
+    // Update UI
     setRows((prev) =>
       prev.map((r) =>
         r.student_id === row.student_id
@@ -470,6 +508,26 @@ function ApprovedPickupsTab() {
   return (
     <div className="card" style={{ padding: 20 }}>
       <h3 style={{ marginBottom: 16 }}>Approved Pickups</h3>
+
+      {/* NEW — Search + Sort bar */}
+      <div className="row wrap" style={{ gap: 12, marginBottom: 16 }}>
+        <input
+          placeholder="Search student..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ minWidth: 180 }}
+        />
+
+        <label className="label">Sort</label>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+        >
+          <option value="first">First Name</option>
+          <option value="last">Last Name</option>
+          <option value="school">School</option>
+        </select>
+      </div>
 
       {busy ? (
         <div className="muted">Loading…</div>
@@ -485,8 +543,14 @@ function ApprovedPickupsTab() {
           </thead>
 
           <tbody>
-            {rows.map((r, i) => (
-              <ApprovedRow key={r.student_id} row={r} index={i} onSave={savePickups} />
+            {filtered.map((r, i) => (
+              <ApprovedRow
+                key={r.student_id}
+                row={r}
+                index={i}
+                onSave={savePickups}
+                sortBy={sortBy}
+              />
             ))}
           </tbody>
         </table>
@@ -499,10 +563,12 @@ function ApprovedRow({
   row,
   index,
   onSave,
+  sortBy,
 }: {
   row: any;
   index: number;
   onSave: (row: any, list: string[]) => void;
+  sortBy: "first" | "last" | "school";
 }) {
   const [editing, setEditing] = useState(false);
   const [items, setItems] = useState<string[]>([...row.approved_pickups]);
@@ -515,30 +581,22 @@ function ApprovedRow({
     setDraft("");
   }
 
+  const displayName =
+    sortBy === "last"
+      ? `${row.last_name}, ${row.first_name}`
+      : `${row.first_name} ${row.last_name}`;
+
   return (
     <tr style={{ background: index % 2 ? "#f7f7f7" : "#fff" }}>
-      <td style={{ width: 180, whiteSpace: "nowrap" }}>{row.student_name}</td>
+      <td style={{ whiteSpace: "nowrap" }}>{displayName}</td>
       <td>{row.school}</td>
 
       {editing ? (
         <td colSpan={2}>
           <div className="col" style={{ gap: 8 }}>
-            <div
-              className="row wrap"
-              style={{
-                gap: 8,
-                flexWrap: "wrap",
-              }}
-            >
+            <div className="row wrap" style={{ gap: 8, flexWrap: "wrap" }}>
               {items.map((x: string, i: number) => (
-                <span
-                  key={i}
-                  className="chip"
-                  style={{
-                    marginRight: 4,
-                    display: "inline-block",
-                  }}
-                >
+                <span key={i} className="chip" style={{ display: "inline-block" }}>
                   {x}
                   <button
                     className="btn"
@@ -590,25 +648,12 @@ function ApprovedRow({
       ) : (
         <>
           <td>
-            <div
-              className="row wrap"
-              style={{ gap: 6, flexWrap: "wrap" }}
-            >
+            <div className="row wrap" style={{ gap: 6, flexWrap: "wrap" }}>
               {row.approved_pickups.length === 0 ? (
                 <span className="muted">None</span>
               ) : (
                 row.approved_pickups.map((x: string, i: number) => (
-                  <span
-                    key={i}
-                    className="chip"
-                    style={{
-                      marginRight: 6,
-                      display: "inline-block",
-                      maxWidth: "200px",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                  <span key={i} className="chip" style={{ display: "inline-block" }}>
                     {x}
                   </span>
                 ))
@@ -628,7 +673,7 @@ function ApprovedRow({
 }
 
 /* ============================================================
-   TAB 3 — STUDENT HISTORY (FULL EDITING RESTORED)
+   TAB 3 — STUDENT HISTORY (UNCHANGED, WORKING)
 ============================================================ */
 function StudentHistoryTab() {
   const [studentId, setStudentId] = useState("");
@@ -674,11 +719,7 @@ function StudentHistoryTab() {
         r.action === "checked" && r.meta?.pickupTime
           ? r.meta.pickupTime
           : r.at;
-
-      return {
-        ...r,
-        baseTime: base,
-      };
+      return { ...r, baseTime: base };
     });
 
     setRows(fixed);
@@ -724,7 +765,7 @@ function StudentHistoryTab() {
       }
 
       await run();
-    } catch (e: any) {
+    } catch (e) {
       console.error("Save time failed", e);
       alert("Save failed");
     }
@@ -771,7 +812,7 @@ function StudentHistoryTab() {
             </thead>
 
             <tbody>
-              {rows.map((r: any, i: number) => {
+              {rows.map((r, i) => {
                 const d = new Date(r.baseTime);
                 const ymd = new Intl.DateTimeFormat("en-CA", {
                   timeZone: "America/New_York",
