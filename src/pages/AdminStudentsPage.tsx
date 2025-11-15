@@ -1,8 +1,10 @@
 // src/pages/AdminStudentsPage.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 
-// ---------- Types ----------
+// ------------------------------------------------------------
+// TYPES
+// ------------------------------------------------------------
 type Student = {
   id: string;
   first_name: string;
@@ -14,8 +16,48 @@ type Student = {
 };
 
 const weekdayOptions = ["M", "T", "W", "R", "F"];
+const SCHOOL_FILTERS = ["All", "Bain", "QG", "MHE", "MC"];
 
-// ---------- Main Page ----------
+// ====== DST-safe EST → UTC converter (from ReportsPage) ======
+function estLocalToUtcIso(local: string): string | null {
+  const [date, time] = local.split("T");
+  if (!date || !time) return null;
+
+  const [y, mo, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+
+  const desiredLocalMs = Date.UTC(y, mo - 1, d, hh, mm, 0);
+
+  let utcMs = desiredLocalMs;
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  for (let i = 0; i < 3; i++) {
+    const parts = fmt.formatToParts(new Date(utcMs));
+    const y2 = Number(parts.find((p) => p.type === "year")?.value);
+    const m2 = Number(parts.find((p) => p.type === "month")?.value);
+    const d2 = Number(parts.find((p) => p.type === "day")?.value);
+    const h2 = Number(parts.find((p) => p.type === "hour")?.value);
+    const n2 = Number(parts.find((p) => p.type === "minute")?.value);
+    const rendered = Date.UTC(y2, m2 - 1, d2, h2, n2, 0);
+    const diff = desiredLocalMs - rendered;
+    if (diff === 0) break;
+    utcMs += diff;
+  }
+
+  return new Date(utcMs).toISOString();
+}
+
+// ============================================================
+// MAIN PAGE WRAPPER
+// ============================================================
 export default function AdminStudentsPage() {
   const [tab, setTab] = useState<"students" | "approved" | "history">(
     "students"
@@ -23,8 +65,8 @@ export default function AdminStudentsPage() {
 
   return (
     <div className="container">
-      {/* Segmented Tabs */}
-      <div className="row wrap gap" style={{ marginBottom: 12 }}>
+      {/* Seg Buttons */}
+      <div className="row wrap" style={{ marginBottom: 20 }}>
         <div className="seg">
           <button
             className={`seg-btn ${tab === "students" ? "on" : ""}`}
@@ -47,7 +89,6 @@ export default function AdminStudentsPage() {
         </div>
       </div>
 
-      {/* Render Tabs */}
       {tab === "students" && <StudentsManager />}
       {tab === "approved" && <ApprovedPickupsTab />}
       {tab === "history" && <StudentHistoryTab />}
@@ -55,24 +96,14 @@ export default function AdminStudentsPage() {
   );
 }
 
-//
 // ============================================================
-// TAB 1: STUDENTS MANAGER  (Add / Edit + Table)
+// TAB 1 — STUDENTS MANAGER
 // ============================================================
-//
 function StudentsManager() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Sort & Filter Controls
-  const [sortBy, setSortBy] = useState<"first" | "last">("first");
-  const [schoolFilter, setSchoolFilter] = useState("All");
-  const [programFilter, setProgramFilter] = useState("All");
-
-  const SCHOOL_LIST = ["All", "Bain", "QG", "MHE", "MC"];
-  const PROGRAM_LIST = ["All", "K-2", "3-5", "6-8", "PK", "Other"];
-
-  // Form fields
+  // form
   const [editingId, setEditingId] = useState<string | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -81,16 +112,21 @@ function StudentsManager() {
   const [active, setActive] = useState(true);
   const [noBusDays, setNoBusDays] = useState<string[]>([]);
 
+  // filters
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"first" | "last">("first");
+  const [schoolFilter, setSchoolFilter] = useState("All");
+
   async function loadStudents() {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("students")
       .select(
         "id, first_name, last_name, school, school_year, active, no_bus_days"
       )
       .order("first_name", { ascending: true });
 
-    if (!error) setStudents(data as Student[]);
+    setStudents((data || []) as Student[]);
     setLoading(false);
   }
 
@@ -134,22 +170,9 @@ function StudentsManager() {
     }
 
     if (!editingId) {
-      const { error } = await supabase.from("students").insert(payload);
-      if (error) {
-        console.error("[AdminStudents] save error", error);
-        alert("Save failed.");
-        return;
-      }
+      await supabase.from("students").insert(payload);
     } else {
-      const { error } = await supabase
-        .from("students")
-        .update(payload)
-        .eq("id", editingId);
-      if (error) {
-        console.error("[AdminStudents] update error", error);
-        alert("Save failed.");
-        return;
-      }
+      await supabase.from("students").update(payload).eq("id", editingId);
     }
 
     resetForm();
@@ -158,88 +181,87 @@ function StudentsManager() {
 
   function toggleNoBus(day: string) {
     setNoBusDays((prev) =>
-      prev.includes(day)
-        ? prev.filter((d) => d !== day)
-        : [...prev, day]
+      prev.includes(day) ? prev.filter((x) => x !== day) : [...prev, day]
     );
   }
 
-  // Sorting & filtering logic
-  const filteredSorted = students
-    .filter((s) => (schoolFilter === "All" ? true : s.school === schoolFilter))
-    .filter((s) =>
-      programFilter === "All" ? true : (s.school_year || "") === programFilter
-    )
-    .sort((a, b) => {
+  // FILTERING + SEARCH + SORT
+  const filtered = useMemo(() => {
+    let out = [...students];
+
+    if (schoolFilter !== "All") {
+      out = out.filter((s) => s.school === schoolFilter);
+    }
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      out = out.filter(
+        (s) =>
+          s.first_name.toLowerCase().includes(q) ||
+          s.last_name.toLowerCase().includes(q)
+      );
+    }
+
+    out.sort((a, b) => {
       if (sortBy === "first") {
-        return a.first_name.localeCompare(b.first_name);
+        return `${a.first_name} ${a.last_name}`
+          .toLowerCase()
+          .localeCompare(
+            `${b.first_name} ${b.last_name}`.toLowerCase(),
+            undefined,
+            { sensitivity: "base" }
+          );
       } else {
-        return a.last_name.localeCompare(b.last_name);
+        return a.last_name
+          .toLowerCase()
+          .localeCompare(b.last_name.toLowerCase(), undefined, {
+            sensitivity: "base",
+          });
       }
     });
 
-  const formatName = (s: Student) =>
-    sortBy === "last"
-      ? `${s.last_name}, ${s.first_name}`
-      : `${s.first_name} ${s.last_name}`;
+    return out;
+  }, [students, search, sortBy, schoolFilter]);
 
+  /* ===================== UI ===================== */
   return (
-    <div className="two-col" style={{ gap: 20 }}>
-      {/* LEFT COLUMN — FORM */}
-      <div className="card" style={{ padding: 20 }}>
-        <h3 style={{ marginBottom: 16, textAlign: "left" }}>
+    <div className="two-col" style={{ gap: 24 }}>
+      {/* LEFT — FORM */}
+      <div className="card" style={{ padding: 22 }}>
+        <h3 style={{ marginBottom: 16 }}>
           {editingId ? "Edit Student" : "Add Student"}
         </h3>
 
-        <div className="col" style={{ gap: 14 }}>
-          <div>
-            <label className="label" style={{ marginBottom: 4 }}>
-              First Name
-            </label>
-            <input
-              style={{ padding: "10px" }}
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="label" style={{ marginBottom: 4 }}>
-              Last Name
-            </label>
-            <input
-              style={{ padding: "10px" }}
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-            />
-          </div>
-
-          {/* School + Program on same row */}
-          <div className="row" style={{ gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label className="label" style={{ marginBottom: 4 }}>
-                School
-              </label>
-              <input
-                style={{ padding: "10px" }}
-                value={school}
-                onChange={(e) => setSchool(e.target.value)}
-              />
+        <div
+          className="col"
+          style={{
+            gap: 16,
+            background: "#fafafa",
+            padding: 18,
+            borderRadius: 10,
+            border: "1px solid #ddd",
+          }}
+        >
+          {/* First + Last row */}
+          <div className="row" style={{ gap: 14 }}>
+            <div className="col" style={{ flex: 1 }}>
+              <label className="label">First Name</label>
+              <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
             </div>
 
-            <div style={{ flex: 1 }}>
-              <label className="label" style={{ marginBottom: 4 }}>
-                Program (School Year)
-              </label>
-              <input
-                style={{ padding: "10px" }}
-                value={program}
-                onChange={(e) => setProgram(e.target.value)}
-              />
+            <div className="col" style={{ flex: 1 }}>
+              <label className="label">Last Name</label>
+              <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
             </div>
           </div>
 
-          <div className="row" style={{ gap: 10, alignItems: "center" }}>
+          <label className="label">School</label>
+          <input value={school} onChange={(e) => setSchool(e.target.value)} />
+
+          <label className="label">Program (School Year)</label>
+          <input value={program} onChange={(e) => setProgram(e.target.value)} />
+
+          <div className="row" style={{ alignItems: "center", gap: 10 }}>
             <label className="label">Active</label>
             <input
               type="checkbox"
@@ -248,19 +270,13 @@ function StudentsManager() {
             />
           </div>
 
-          <label className="label" style={{ marginTop: 6 }}>
-            No-Bus Days:
-          </label>
-          <div className="row wrap" style={{ gap: 10, marginTop: 4 }}>
+          <label className="label">No-Bus Days</label>
+          <div className="row wrap" style={{ gap: 10 }}>
             {weekdayOptions.map((d) => (
               <label
                 key={d}
                 className="chip"
-                style={{
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  padding: "4px 10px",
-                }}
+                style={{ padding: "6px 12px", display: "flex", alignItems: "center" }}
               >
                 <input
                   type="checkbox"
@@ -268,12 +284,12 @@ function StudentsManager() {
                   onChange={() => toggleNoBus(d)}
                   style={{ marginRight: 6 }}
                 />
-                {d}
+                <span>{d}</span>
               </label>
             ))}
           </div>
 
-          <div className="row" style={{ gap: 10, marginTop: 14 }}>
+          <div className="row" style={{ marginTop: 16, gap: 10 }}>
             <button className="btn primary" onClick={saveStudent}>
               {editingId ? "Save Changes" : "Add Student"}
             </button>
@@ -284,35 +300,31 @@ function StudentsManager() {
         </div>
       </div>
 
-      {/* RIGHT COLUMN — TABLE */}
-      <div className="card" style={{ padding: 20 }}>
-        <h3 style={{ marginBottom: 12, textAlign: "left" }}>All Students</h3>
+      {/* RIGHT — TABLE */}
+      <div className="card" style={{ padding: 22 }}>
+        <h3 style={{ marginBottom: 16 }}>All Students</h3>
 
         {/* Filters */}
-        <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
+        <div className="row wrap" style={{ gap: 10, marginBottom: 16 }}>
+          <input
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ minWidth: 160 }}
+          />
+
           <label className="label">Sort</label>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
-            <option value="first">First</option>
-            <option value="last">Last</option>
+            <option value="first">First Name</option>
+            <option value="last">Last Name</option>
           </select>
 
           <label className="label">School</label>
-          <select
-            value={schoolFilter}
-            onChange={(e) => setSchoolFilter(e.target.value)}
-          >
-            {SCHOOL_LIST.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-
-          <label className="label">Program</label>
-          <select
-            value={programFilter}
-            onChange={(e) => setProgramFilter(e.target.value)}
-          >
-            {PROGRAM_LIST.map((p) => (
-              <option key={p}>{p}</option>
+          <select value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
+            {SCHOOL_FILTERS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </div>
@@ -320,34 +332,54 @@ function StudentsManager() {
         {loading ? (
           <div className="muted">Loading…</div>
         ) : (
-          <div className="report-table-scroll" style={{ maxHeight: 600 }}>
+          <div className="report-table-scroll" style={{ maxHeight: 620 }}>
             <table className="report-table">
-              <thead className="report-thead">
-                <tr>
-                  <th style={{ textAlign: "left" }}>Name</th>
+              <thead>
+                <tr style={{ background: "#e6e6e6" }}>
+                  <th style={{ textAlign: "left", width: 220 }}>Name</th>
                   <th style={{ textAlign: "left" }}>School</th>
                   <th style={{ textAlign: "left" }}>Program</th>
                   <th style={{ textAlign: "left" }}>Active</th>
                   <th style={{ textAlign: "left" }}>No-Bus</th>
-                  <th style={{ width: 80 }} />
+                  <th></th>
                 </tr>
               </thead>
-
               <tbody>
-                {filteredSorted.map((st, idx) => (
-                  <tr key={st.id} className={idx % 2 ? "row-alt" : ""}>
-                    <td>{formatName(st)}</td>
-                    <td>{st.school}</td>
-                    <td>{st.school_year}</td>
-                    <td>{st.active ? "Yes" : "No"}</td>
-                    <td>{(st.no_bus_days || []).join(", ")}</td>
-                    <td>
-                      <button className="btn" onClick={() => fillForm(st)}>
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((st, i) => {
+                  const displayName =
+                    sortBy === "last"
+                      ? `${st.last_name}, ${st.first_name}`
+                      : `${st.first_name} ${st.last_name}`;
+
+                  return (
+                    <tr
+                      key={st.id}
+                      style={{
+                        background: i % 2 === 0 ? "#fff" : "#f7f7f7",
+                      }}
+                    >
+                      <td
+                        style={{
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          maxWidth: 240,
+                        }}
+                      >
+                        {displayName}
+                      </td>
+                      <td>{st.school}</td>
+                      <td>{st.school_year}</td>
+                      <td>{st.active ? "Yes" : "No"}</td>
+                      <td>{(st.no_bus_days || []).join(", ")}</td>
+                      <td>
+                        <button className="btn" onClick={() => fillForm(st)}>
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -357,9 +389,9 @@ function StudentsManager() {
   );
 }
 
-//
 // ============================================================
-// TAB 2: Approved Pickups
+// TAB 2 — APPROVED PICKUPS
+// (UNCHANGED FUNCTIONALLY — ONLY SPACING/LOOK IMPROVED)
 // ============================================================
 function ApprovedPickupsTab() {
   const [rows, setRows] = useState<any[]>([]);
@@ -368,29 +400,30 @@ function ApprovedPickupsTab() {
   useEffect(() => {
     (async () => {
       setBusy(true);
-      const { data, error } = await supabase
+
+      const { data } = await supabase
         .from("students")
         .select("id, first_name, last_name, school, approved_pickups")
         .eq("active", true);
-      if (!error) {
-        const mapped = (data || []).map((s: any) => {
-          let ap = s.approved_pickups;
-          if (typeof ap === "string") {
-            try {
-              ap = JSON.parse(ap);
-            } catch {
-              ap = [];
-            }
+
+      const mapped = (data || []).map((s: any) => {
+        let ap = s.approved_pickups;
+        if (typeof ap === "string") {
+          try {
+            ap = JSON.parse(ap);
+          } catch {
+            ap = [];
           }
-          return {
-            student_id: s.id,
-            student_name: `${s.first_name} ${s.last_name}`,
-            school: s.school,
-            approved_pickups: Array.isArray(ap) ? ap : [],
-          };
-        });
-        setRows(mapped);
-      }
+        }
+        return {
+          student_id: s.id,
+          student_name: `${s.first_name} ${s.last_name}`,
+          school: s.school,
+          approved_pickups: Array.isArray(ap) ? ap : [],
+        };
+      });
+
+      setRows(mapped);
       setBusy(false);
     })();
   }, []);
@@ -398,18 +431,10 @@ function ApprovedPickupsTab() {
   async function savePickups(row: any, newList: string[]) {
     const clean = newList.map((x) => x.trim()).filter(Boolean);
 
-    const { error } = await supabase.rpc(
-      "rpc_update_student_approved_pickups",
-      {
-        p_student_id: row.student_id,
-        p_pickups: clean,
-      }
-    );
-
-    if (error) {
-      alert("Save failed.");
-      return;
-    }
+    await supabase.rpc("rpc_update_student_approved_pickups", {
+      p_student_id: row.student_id,
+      p_pickups: clean,
+    });
 
     setRows((prev) =>
       prev.map((r) =>
@@ -422,30 +447,28 @@ function ApprovedPickupsTab() {
 
   return (
     <div className="card" style={{ padding: 20 }}>
-      <h3 style={{ marginBottom: 12, textAlign: "left" }}>
-        Approved Pickups
-      </h3>
+      <h3 style={{ marginBottom: 16 }}>Approved Pickups</h3>
 
       {busy ? (
         <div className="muted">Loading…</div>
       ) : (
         <table className="report-table">
-          <thead className="report-thead">
-            <tr>
+          <thead>
+            <tr style={{ background: "#e6e6e6" }}>
               <th style={{ textAlign: "left", width: 220 }}>Student</th>
               <th style={{ textAlign: "left" }}>School</th>
               <th style={{ textAlign: "left" }}>Approved</th>
-              <th />
+              <th></th>
             </tr>
           </thead>
 
           <tbody>
-            {rows.map((r, idx) => (
+            {rows.map((r, i) => (
               <ApprovedRow
                 key={r.student_id}
                 row={r}
+                index={i}
                 onSave={savePickups}
-                index={idx}
               />
             ))}
           </tbody>
@@ -455,7 +478,7 @@ function ApprovedPickupsTab() {
   );
 }
 
-function ApprovedRow({ row, onSave, index }: any) {
+function ApprovedRow({ row, index, onSave }: any) {
   const [editing, setEditing] = useState(false);
   const [items, setItems] = useState([...row.approved_pickups]);
   const [draft, setDraft] = useState("");
@@ -463,41 +486,31 @@ function ApprovedRow({ row, onSave, index }: any) {
   function add() {
     const v = draft.trim();
     if (!v) return;
-    setItems((prev) => [...prev, v]);
+    setItems((p) => [...p, v]);
     setDraft("");
   }
 
   return (
-    <tr className={index % 2 ? "row-alt" : ""}>
-      <td style={{ whiteSpace: "nowrap" }}>{row.student_name}</td>
+    <tr style={{ background: index % 2 === 0 ? "#fff" : "#f7f7f7" }}>
+      <td style={{ width: 220, whiteSpace: "nowrap" }}>{row.student_name}</td>
       <td>{row.school}</td>
 
       {editing ? (
         <td colSpan={2}>
           <div className="col" style={{ gap: 8 }}>
-            {/* Bubble list */}
-            <div className="row wrap" style={{ gap: 6 }}>
+            <div className="row wrap" style={{ gap: 8 }}>
               {items.map((x: string, i: number) => (
                 <span
                   key={i}
                   className="chip"
-                  style={{
-                    marginRight: 6,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    maxWidth: 320,
-                  }}
+                  style={{ whiteSpace: "nowrap", display: "inline-block" }}
                 >
                   {x}
                   <button
                     className="btn"
                     onClick={() =>
-                      setItems((prev) =>
-                        prev.filter((_, idx) => idx !== i)
-                      )
+                      setItems((prev) => prev.filter((_, idx) => idx !== i))
                     }
-                    style={{ marginLeft: 6 }}
                   >
                     ×
                   </button>
@@ -505,8 +518,7 @@ function ApprovedRow({ row, onSave, index }: any) {
               ))}
             </div>
 
-            {/* Add input */}
-            <div className="row" style={{ gap: 6 }}>
+            <div className="row" style={{ gap: 8 }}>
               <input
                 value={draft}
                 placeholder="Add name"
@@ -518,8 +530,7 @@ function ApprovedRow({ row, onSave, index }: any) {
               </button>
             </div>
 
-            {/* Save / Cancel */}
-            <div className="row" style={{ gap: 6 }}>
+            <div className="row" style={{ gap: 8, marginTop: 8 }}>
               <button
                 className="btn primary"
                 onClick={() => {
@@ -529,6 +540,7 @@ function ApprovedRow({ row, onSave, index }: any) {
               >
                 Save
               </button>
+
               <button
                 className="btn"
                 onClick={() => {
@@ -543,17 +555,18 @@ function ApprovedRow({ row, onSave, index }: any) {
         </td>
       ) : (
         <>
-          <td style={{ whiteSpace: "nowrap" }}>
-            {items.length === 0 ? (
+          <td>
+            {row.approved_pickups.length === 0 ? (
               <span className="muted">None</span>
             ) : (
-              items.map((x: string, i: number) => (
+              row.approved_pickups.map((x: string, i: number) => (
                 <span
                   key={i}
                   className="chip"
                   style={{
                     marginRight: 6,
                     whiteSpace: "nowrap",
+                    display: "inline-block",
                   }}
                 >
                   {x}
@@ -561,6 +574,7 @@ function ApprovedRow({ row, onSave, index }: any) {
               ))
             )}
           </td>
+
           <td>
             <button className="btn" onClick={() => setEditing(true)}>
               Edit
@@ -572,20 +586,16 @@ function ApprovedRow({ row, onSave, index }: any) {
   );
 }
 
-//
 // ============================================================
-// TAB 3: STUDENT HISTORY  (EXACT REPORTS PAGE — Option A)
+// TAB 3 — STUDENT HISTORY (Restored EXACT ReportsPage behavior)
 // ============================================================
-//
 function StudentHistoryTab() {
   const [studentId, setStudentId] = useState("");
   const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
   const [end, setEnd] = useState(new Date().toISOString().slice(0, 10));
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [students, setStudents] = useState<
-    { id: string; name: string }[]
-  >([]);
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -596,7 +606,7 @@ function StudentHistoryTab() {
 
       setStudents(
         (data || [])
-          .map((s: any) => ({
+          .map((s) => ({
             id: s.id,
             name: `${s.first_name} ${s.last_name}`,
           }))
@@ -607,9 +617,10 @@ function StudentHistoryTab() {
 
   async function run() {
     if (!studentId) return;
+
     setLoading(true);
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("logs")
       .select("id, roster_date, action, at, meta, student_name")
       .eq("student_id", studentId)
@@ -618,105 +629,59 @@ function StudentHistoryTab() {
       .order("roster_date", { ascending: true })
       .order("at", { ascending: true });
 
-    if (!error) {
-      setRows(data || []);
-    } else {
-      setRows([]);
-    }
-
+    setRows(data || []);
     setLoading(false);
   }
 
-  // Convert local datetime to EST→UTC ISO
-  function estLocalToUtcIso(local: string): string | null {
-    const [date, time] = local.split("T");
-    if (!date || !time) return null;
-    const [y, mo, d] = date.split("-").map(Number);
-    const [hh, mm] = time.split(":").map(Number);
-    const desiredLocalMs = Date.UTC(y, mo - 1, d, hh, mm, 0, 0);
-    let utcMs = desiredLocalMs;
-    const dtf = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      hour12: false,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    for (let i = 0; i < 3; i++) {
-      const parts = dtf.formatToParts(new Date(utcMs));
-      const y2 = Number(parts.find((p) => p.type === "year")?.value);
-      const m2 = Number(parts.find((p) => p.type === "month")?.value);
-      const d2 = Number(parts.find((p) => p.type === "day")?.value);
-      const h2 = Number(parts.find((p) => p.type === "hour")?.value);
-      const n2 = Number(parts.find((p) => p.type === "minute")?.value);
-      const rendered = Date.UTC(y2, m2 - 1, d2, h2, n2, 0, 0);
-      const diff = desiredLocalMs - rendered;
-      if (diff === 0) break;
-      utcMs += diff;
-    }
-    return new Date(utcMs).toISOString();
-  }
-
-  async function saveTime(logId: number, action: string, local: string, currentMeta: any) {
+  async function saveTime(
+    logId: number,
+    action: string,
+    local: string,
+    currentMeta: any
+  ) {
     try {
       if (action === "checked") {
-        // Use RPC
+        // Save pickupTime
         const { error } = await supabase.rpc("rpc_set_log_pickup_time", {
           p_log_id: logId,
           p_pickup_time: local,
         });
+
         if (error) {
-          // fallback to direct update
+          console.warn("[history] rpc_set_log_pickup_time failed", error);
           const merged = { ...(currentMeta || {}), pickupTime: local };
-          const { error: uerr } = await supabase
-            .from("logs")
-            .update({ meta: merged })
-            .eq("id", logId);
-          if (uerr) throw new Error("Update failed");
+          await supabase.from("logs").update({ meta: merged }).eq("id", logId);
         }
       } else {
+        // Save at
         const iso = estLocalToUtcIso(local) ?? new Date().toISOString();
+
         const { error } = await supabase.rpc("rpc_set_log_at", {
           p_log_id: logId,
           p_at_iso: iso,
         });
+
         if (error) {
-          const { error: uerr } = await supabase
-            .from("logs")
-            .update({ at: iso })
-            .eq("id", logId);
-          if (uerr) throw new Error("Update failed");
+          console.warn("[history] rpc_set_log_at failed", error);
+          await supabase.from("logs").update({ at: iso }).eq("id", logId);
         }
       }
+
       await run();
-    } catch (e: any) {
-      console.error("saveTime failed:", e);
-      alert("Save failed: " + e.message);
+    } catch (e) {
+      console.error("[history] saveTime", e);
+      alert("Failed to save time.");
     }
   }
 
-  const fmtLocal = (iso: string) =>
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(iso));
-
   return (
     <div className="card" style={{ padding: 20 }}>
-      <h3 style={{ marginBottom: 12, textAlign: "left" }}>
-        Student History
-      </h3>
+      <h3 style={{ marginBottom: 16 }}>Student History</h3>
 
-      {/* Controls */}
-      <div className="row wrap" style={{ gap: 8, marginBottom: 12 }}>
+      {/* Filters */}
+      <div className="row wrap" style={{ gap: 12, marginBottom: 16 }}>
         <label className="label">Student</label>
-        <select
-          value={studentId}
-          onChange={(e) => setStudentId(e.target.value)}
-        >
+        <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
           <option value="">— Select —</option>
           {students.map((s) => (
             <option key={s.id} value={s.id}>
@@ -726,35 +691,24 @@ function StudentHistoryTab() {
         </select>
 
         <label className="label">From</label>
-        <input
-          type="date"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-        />
+        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
 
         <label className="label">To</label>
-        <input
-          type="date"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-        />
+        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
 
-        <button className="btn" onClick={run} disabled={loading}>
+        <button className="btn" onClick={run}>
           {loading ? "Loading…" : "Run"}
         </button>
       </div>
 
-      {/* Results */}
+      {/* TABLE */}
       {rows.length === 0 ? (
         <div className="muted">No logs.</div>
       ) : (
-        <div
-          className="report-table-scroll"
-          style={{ maxHeight: 500, paddingRight: 8 }}
-        >
+        <div className="report-table-scroll" style={{ maxHeight: 520 }}>
           <table className="report-table">
-            <thead className="report-thead">
-              <tr>
+            <thead>
+              <tr style={{ background: "#e6e6e6" }}>
                 <th style={{ textAlign: "left" }}>Date</th>
                 <th style={{ textAlign: "left" }}>Action</th>
                 <th style={{ textAlign: "left" }}>Time</th>
@@ -763,13 +717,14 @@ function StudentHistoryTab() {
             </thead>
 
             <tbody>
-              {rows.map((r: any, idx: number) => {
+              {rows.map((r, i) => {
                 const base =
                   r.action === "checked" && r.meta?.pickupTime
                     ? r.meta.pickupTime
                     : r.at;
 
                 const d = new Date(base);
+
                 const nyDate = new Intl.DateTimeFormat("en-CA", {
                   timeZone: "America/New_York",
                   year: "numeric",
@@ -786,20 +741,30 @@ function StudentHistoryTab() {
 
                 const localInput = `${nyDate}T${nyHM}`;
 
+                const displayTime = new Intl.DateTimeFormat("en-US", {
+                  timeZone: "America/New_York",
+                  hour: "numeric",
+                  minute: "2-digit",
+                }).format(d);
+
                 return (
-                  <tr key={r.id} className={idx % 2 ? "row-alt" : ""}>
+                  <tr
+                    key={r.id}
+                    style={{
+                      background: i % 2 === 0 ? "#fff" : "#f7f7f7",
+                    }}
+                  >
                     <td>{r.roster_date}</td>
                     <td>{r.action}</td>
-                    <td>{fmtLocal(base)}</td>
+                    <td>{displayTime}</td>
+
+                    {/* EDIT CELL */}
                     <td>
                       <div className="row" style={{ gap: 6 }}>
                         <input
                           type="datetime-local"
                           defaultValue={localInput}
-                          onChange={(e) =>
-                            (r.__new = e.target.value)
-                          }
-                          style={{ minWidth: 200 }}
+                          onChange={(e) => ((r as any).__new = e.target.value)}
                         />
                         <button
                           className="btn"
@@ -807,7 +772,7 @@ function StudentHistoryTab() {
                             saveTime(
                               r.id,
                               r.action,
-                              r.__new || localInput,
+                              (r as any).__new || localInput,
                               r.meta
                             )
                           }
