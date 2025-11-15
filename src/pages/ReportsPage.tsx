@@ -138,7 +138,7 @@ export function buildDailyPrintHtml(
 
 export default function ReportsPage() {
   // tabs
-  const [view, setView] = useState<'daily'|'hours'|'approved'|'history'>('daily')
+  const [view, setView] = useState<'daily'|'hours'>('daily')
 
   // DAILY tab state
   const [dateStr, setDateStr] = useState(estDateString(new Date()))
@@ -177,44 +177,7 @@ export default function ReportsPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
 
-  // ===== Approved tab fetch (unchanged) =====
-  useEffect(() => {
-    if (view !== 'approved') return
-    let alive = true
-    ;(async () => {
-      setBusy(true)
-      try {
-        const { data, error } = await supabase
-          .from('students')
-          .select('id, first_name, last_name, school, approved_pickups')
-          .eq('active', true)
-        if (error) throw error
-        const list: Row[] = (data||[]).map((st:any)=> {
-          const apRaw = st.approved_pickups
-          const isString = typeof apRaw === 'string'
-          let apList: string[] | null = null
-          if (Array.isArray(apRaw)) apList = apRaw as string[]
-          else if (isString) { try { apList = JSON.parse(apRaw) } catch { apList = null } }
-          return {
-            student_id: st.id,
-            student_name: `${st.first_name} ${st.last_name}`,
-            school: st.school ?? '',
-            approved_pickups: apList,
-            __apRawType: isString ? 'string' : 'json',
-          }
-        })
-        if (!alive) return
-        setRows(list)
-      } catch (e) {
-        if (!alive) return
-        console.error('[approved] fetch failed', e)
-        setRows([])
-      } finally {
-        if (alive) setBusy(false)
-      }
-    })()
-    return () => { alive = false }
-  }, [view])
+  
 
   // ===== Daily fetch (same, with program pulled from school_year) =====
   useEffect(() => {
@@ -655,8 +618,7 @@ export default function ReportsPage() {
           <div className="seg">
             <button className={`seg-btn ${view==='daily'?'on':''}`} onClick={()=>setView('daily')}>Daily</button>
             <button className={`seg-btn ${view==='hours'?'on':''}`} onClick={()=>setView('hours')}>4+ Hours</button>
-            <button className={`seg-btn ${view==='approved'?'on':''}`} onClick={()=>setView('approved')}>Approved Pickups</button>
-            <button className={`seg-btn ${view==='history'?'on':''}`} onClick={()=>setView('history')}>Student History</button>
+
           </div>
         </div>
 
@@ -804,15 +766,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* APPROVED PICKUPS */}
-      {view === 'approved' && (
-        <ApprovedPickupsBlock rows={rows} busy={busy} setRows={setRows} />
-      )}
 
-      {/* STUDENT HISTORY */}
-      {view === 'history' && (
-        <StudentHistoryBlock />
-      )}
     </div>
   )
 }
