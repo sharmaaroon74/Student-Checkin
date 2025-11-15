@@ -1,243 +1,268 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+// src/pages/AdminStudentsPage.tsx
+import React, { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 
 type Student = {
-  id: string;
+  id: string | null;
   first_name: string;
   last_name: string;
-  school: string | null;
-  school_year: string | null;      // “Program”
+  school: string;
+  school_year: string;
   active: boolean;
-  no_bus_days: string[] | null;
+  no_bus_M: boolean;
+  no_bus_T: boolean;
+  no_bus_W: boolean;
+  no_bus_R: boolean;
+  no_bus_F: boolean;
 };
 
-const weekdayOptions = ['M', 'T', 'W', 'R', 'F'];
-
 export default function AdminStudentsPage() {
+  const emptyForm: Student = {
+    id: null,
+    first_name: "",
+    last_name: "",
+    school: "",
+    school_year: "",
+    active: true,
+    no_bus_M: false,
+    no_bus_T: false,
+    no_bus_W: false,
+    no_bus_R: false,
+    no_bus_F: false,
+  };
+
+  const [form, setForm] = useState<Student>(emptyForm);
   const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  // Form fields
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [school, setSchool] = useState('');
-  const [program, setProgram] = useState('');
-  const [active, setActive] = useState(true);
-  const [noBusDays, setNoBusDays] = useState<string[]>([]);
-
-  async function loadStudents() {
-    setLoading(true);
+  async function load() {
     const { data, error } = await supabase
-      .from('students')
-      .select('id, first_name, last_name, school, school_year, active, no_bus_days')
-      .order('first_name', { ascending: true });
+      .from("students")
+      .select(
+        "id, first_name, last_name, school, school_year, active, no_bus_M, no_bus_T, no_bus_W, no_bus_R, no_bus_F"
+      )
+      .order("first_name", { ascending: true });
 
-    if (error) {
-      console.error('[AdminStudents] fetch error', error);
-      setStudents([]);
-    } else {
+    if (!error && data) {
       setStudents(data as Student[]);
     }
-    setLoading(false);
   }
 
-  useEffect(() => { loadStudents(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
-  function resetForm() {
-    setEditingId(null);
-    setFirstName('');
-    setLastName('');
-    setSchool('');
-    setProgram('');
-    setActive(true);
-    setNoBusDays([]);
-  }
-
-  function fillForm(st: Student) {
-    setEditingId(st.id);
-    setFirstName(st.first_name);
-    setLastName(st.last_name);
-    setSchool(st.school || '');
-    setProgram(st.school_year || '');
-    setActive(st.active);
-    setNoBusDays(st.no_bus_days || []);
-  }
-
-  async function saveStudent() {
+  async function save() {
     const payload = {
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      school: school.trim(),
-      school_year: program.trim(),
-      active,
-      no_bus_days: noBusDays,
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
+      school: form.school.trim(),
+      school_year: form.school_year.trim(),
+      active: form.active,
+      no_bus_M: form.no_bus_M,
+      no_bus_T: form.no_bus_T,
+      no_bus_W: form.no_bus_W,
+      no_bus_R: form.no_bus_R,
+      no_bus_F: form.no_bus_F,
     };
 
-    console.log('[AdminStudents] submitting payload:', payload);
+    let error;
 
-    if (!payload.first_name || !payload.last_name) {
-      alert('First and last name are required');
-      return;
-    }
-
-    let result;
-    if (editingId) {
-      result = await supabase
-        .from('students')
-        .update(payload)
-        .eq('id', editingId)
-        .select()
-        .maybeSingle();
+    if (!form.id) {
+      // INSERT
+      const { error: err } = await supabase.from("students").insert(payload);
+      error = err;
     } else {
-      result = await supabase
-        .from('students')
-        .insert(payload)
-        .select()
-        .maybeSingle();
+      // UPDATE
+      const { error: err } = await supabase
+        .from("students")
+        .update(payload)
+        .eq("id", form.id);
+      error = err;
     }
 
-    if (result.error) {
-      console.error('[AdminStudents] save error:', result.error);
-      alert('Save failed — check console for details.');
-      return;
-    }
-
-    resetForm();
-    loadStudents();
-  }
-
-  async function deleteStudent(id: string) {
-    if (!window.confirm('Delete this student?')) return;
-    const { error } = await supabase.from('students').delete().eq('id', id);
     if (error) {
-      console.error('[AdminStudents] delete error:', error);
-      alert('Delete failed — check console.');
+      console.error("[AdminStudents] save error:", error);
+      alert("Save failed.");
       return;
     }
-    loadStudents();
+
+    setForm(emptyForm);
+    load();
   }
 
-  function toggleNoBus(day: string) {
-    setNoBusDays(prev =>
-      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
-    );
+  function edit(stu: Student) {
+    setForm({
+      id: stu.id,
+      first_name: stu.first_name,
+      last_name: stu.last_name,
+      school: stu.school ?? "",
+      school_year: stu.school_year ?? "",
+      active: stu.active,
+      no_bus_M: stu.no_bus_M,
+      no_bus_T: stu.no_bus_T,
+      no_bus_W: stu.no_bus_W,
+      no_bus_R: stu.no_bus_R,
+      no_bus_F: stu.no_bus_F,
+    });
   }
+
+  const noBusBubble = (key: keyof Student, label: string) => (
+    <label
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        marginRight: 12,
+      }}
+    >
+      <div
+        style={{
+          background: "#e6f3ff",
+          borderRadius: 40,
+          padding: "10px 14px",
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={form[key] as boolean}
+          onChange={(e) =>
+            setForm((p) => ({ ...p, [key]: e.target.checked }))
+          }
+        />
+      </div>
+      <span style={{ fontSize: 13, marginTop: 2 }}>{label}</span>
+    </label>
+  );
 
   return (
-    <div className="container">
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h2 className="section-title">Student Management</h2>
+    <div className="page">
+      {/* ---------- Add Student Card ---------- */}
+      <div className="card" style={{ padding: 20 }}>
+        <h2 className="section-title" style={{ marginBottom: 15, textAlign: "left" }}>
+          {form.id ? "Edit Student" : "Add Student"}
+        </h2>
 
-        <div className="two-col" style={{ gap: 20 }}>
-          {/* ========== FORM ========== */}
-          <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ marginBottom: 12 }}>
-              {editingId ? 'Edit Student' : 'Add Student'}
-            </h3>
-
-            <div className="col" style={{ gap: 10 }}>
+        <div className="col" style={{ maxWidth: 480, gap: 14 }}>
+          {/* Name Row */}
+          <div className="row" style={{ gap: 10 }}>
+            <div style={{ flex: 1 }}>
               <label className="label">First Name</label>
               <input
-                type="text"
-                value={firstName}
-                onChange={e => setFirstName(e.target.value)}
+                value={form.first_name}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, first_name: e.target.value }))
+                }
               />
-
+            </div>
+            <div style={{ flex: 1 }}>
               <label className="label">Last Name</label>
               <input
-                type="text"
-                value={lastName}
-                onChange={e => setLastName(e.target.value)}
+                value={form.last_name}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, last_name: e.target.value }))
+                }
               />
-
-              <label className="label">School</label>
-              <input
-                type="text"
-                value={school}
-                onChange={e => setSchool(e.target.value)}
-              />
-
-              <label className="label">Program (School Year)</label>
-              <input
-                type="text"
-                value={program}
-                onChange={e => setProgram(e.target.value)}
-              />
-
-              <label className="label">Active</label>
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={e => setActive(e.target.checked)}
-              />
-
-              <label className="label">No-Bus Days:</label>
-              <div className="row wrap" style={{ gap: 6 }}>
-                {weekdayOptions.map(d => (
-                  <label key={d} className="chip" style={{ cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={noBusDays.includes(d)}
-                      onChange={() => toggleNoBus(d)}
-                      style={{ marginRight: 4 }}
-                    />
-                    {d}
-                  </label>
-                ))}
-              </div>
-
-              <div className="row" style={{ gap: 10, marginTop: 10 }}>
-                <button className="btn primary" onClick={saveStudent}>
-                  {editingId ? 'Save Changes' : 'Add Student'}
-                </button>
-                <button className="btn" onClick={resetForm}>
-                  Reset
-                </button>
-              </div>
             </div>
           </div>
 
-          {/* ========== TABLE ========== */}
-          <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ marginBottom: 12 }}>All Students</h3>
-
-            {loading ? (
-              <div className="muted">Loading…</div>
-            ) : (
-              <div className="report-table-scroll" style={{ maxHeight: 600 }}>
-                <table className="report-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>School</th>
-                      <th>Program</th>
-                      <th>Active</th>
-                      <th>No-Bus</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map(st => (
-                      <tr key={st.id}>
-                        <td>{st.first_name} {st.last_name}</td>
-                        <td>{st.school}</td>
-                        <td>{st.school_year}</td>
-                        <td>{st.active ? 'Yes' : 'No'}</td>
-                        <td>{(st.no_bus_days || []).join(', ')}</td>
-                        <td>
-                          <button className="btn" onClick={() => fillForm(st)}>Edit</button>
-                          <button className="btn" style={{ marginLeft: 6 }} onClick={() => deleteStudent(st.id)}>Delete</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          <div>
+            <label className="label">School</label>
+            <input
+              value={form.school}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, school: e.target.value }))
+              }
+            />
           </div>
 
+          <div>
+            <label className="label">Program (School Year)</label>
+            <input
+              value={form.school_year}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, school_year: e.target.value }))
+              }
+            />
+          </div>
+
+          <div className="row" style={{ alignItems: "center", gap: 10 }}>
+            <label className="label">Active</label>
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, active: e.target.checked }))
+              }
+            />
+          </div>
+
+          {/* No-Bus Day Bubbles */}
+          <div className="row" style={{ alignItems: "center", marginTop: 10 }}>
+            <span className="label" style={{ marginRight: 8 }}>
+              No-Bus Days:
+            </span>
+            {noBusBubble("no_bus_M", "M")}
+            {noBusBubble("no_bus_T", "T")}
+            {noBusBubble("no_bus_W", "W")}
+            {noBusBubble("no_bus_R", "R")}
+            {noBusBubble("no_bus_F", "F")}
+          </div>
+
+          {/* Buttons */}
+          <div className="row" style={{ gap: 10, marginTop: 10 }}>
+            <button className="btn primary" onClick={save}>
+              {form.id ? "Save Changes" : "Add Student"}
+            </button>
+            <button className="btn" onClick={() => setForm(emptyForm)}>
+              Reset
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* ---------- Students Table ---------- */}
+      <div className="card" style={{ marginTop: 30 }}>
+        <h3 className="section-title" style={{ textAlign: "left" }}>
+          All Students
+        </h3>
+
+        <table className="sd-table" style={{ width: "100%", marginTop: 10 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left" }}>First</th>
+              <th style={{ textAlign: "left" }}>Last</th>
+              <th style={{ textAlign: "left" }}>School</th>
+              <th style={{ textAlign: "left" }}>Program</th>
+              <th style={{ textAlign: "left" }}>Active</th>
+              <th style={{ textAlign: "left" }}>No-Bus</th>
+              <th />
+            </tr>
+          </thead>
+
+          <tbody>
+            {students.map((s) => (
+              <tr key={s.id || ""}>
+                <td>{s.first_name}</td>
+                <td>{s.last_name}</td>
+                <td>{s.school}</td>
+                <td>{s.school_year}</td>
+                <td>{s.active ? "Yes" : "No"}</td>
+                <td>
+                  {["M", "T", "W", "R", "F"]
+                    .filter((d) => s[`no_bus_${d}` as keyof Student])
+                    .join(", ")}
+                </td>
+                <td>
+                  <button className="btn" onClick={() => edit(s)}>
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
