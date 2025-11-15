@@ -5,6 +5,45 @@ import React, { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 
 /* ============================================================
+   HELPERS (for Student History DST-safe time editing)
+============================================================ */
+function estLocalToUtcIso(local: string): string | null {
+  const [date, time] = local.split("T");
+  if (!date || !time) return null;
+  const [y, mo, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+
+  const desiredLocalMs = Date.UTC(y, mo - 1, d, hh, mm, 0, 0);
+  let utcMs = desiredLocalMs;
+
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  for (let i = 0; i < 3; i++) {
+    const p = dtf.formatToParts(new Date(utcMs));
+    const y2 = Number(p.find((x) => x.type === "year")?.value);
+    const m2 = Number(p.find((x) => x.type === "month")?.value);
+    const d2 = Number(p.find((x) => x.type === "day")?.value);
+    const h2 = Number(p.find((x) => x.type === "hour")?.value);
+    const n2 = Number(p.find((x) => x.type === "minute")?.value);
+
+    const rendered = Date.UTC(y2, m2 - 1, d2, h2, n2, 0, 0);
+    const diff = desiredLocalMs - rendered;
+    if (diff === 0) break;
+    utcMs += diff;
+  }
+
+  return new Date(utcMs).toISOString();
+}
+
+/* ============================================================
    TYPES
 ============================================================ */
 type Student = {
@@ -62,7 +101,7 @@ export default function AdminStudentsPage() {
 }
 
 /* ============================================================
-   TAB 1 — STUDENTS MANAGER
+   TAB 1 — STUDENTS MANAGER  (UNCHANGED — LOCKED)
 ============================================================ */
 function StudentsManager() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -76,7 +115,6 @@ function StudentsManager() {
   const [active, setActive] = useState(true);
   const [noBusDays, setNoBusDays] = useState<string[]>([]);
 
-  /* Filters */
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"first" | "last">("first");
   const [schoolFilter, setSchoolFilter] = useState("All");
@@ -94,7 +132,6 @@ function StudentsManager() {
     setLoading(false);
   }
 
-  /* Load initial */
   useEffect(() => {
     loadStudents();
   }, []);
@@ -150,7 +187,6 @@ function StudentsManager() {
     );
   }
 
-  /* ------------------ FILTER + SORT + SEARCH ------------------ */
   const filtered = useMemo(() => {
     let out = [...students];
 
@@ -182,10 +218,9 @@ function StudentsManager() {
     return out;
   }, [students, search, sortBy, schoolFilter]);
 
-  /* ------------------ UI ------------------ */
   return (
     <div className="two-col" style={{ gap: 28 }}>
-      {/* LEFT — ADD / EDIT FORM */}
+      {/* LEFT — FORM (UNCHANGED) */}
       <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 20 }}>
           {editingId ? "Edit Student" : "Add Student"}
@@ -201,7 +236,6 @@ function StudentsManager() {
             border: "1px solid #ddd",
           }}
         >
-          {/* First + Last */}
           <div className="row" style={{ gap: 16 }}>
             <div className="col" style={{ flex: 1 }}>
               <label className="label" style={{ marginBottom: 4 }}>
@@ -226,7 +260,6 @@ function StudentsManager() {
             </div>
           </div>
 
-          {/* School */}
           <label className="label" style={{ marginBottom: 4 }}>
             School
           </label>
@@ -236,7 +269,6 @@ function StudentsManager() {
             onChange={(e) => setSchool(e.target.value)}
           />
 
-          {/* Program */}
           <label className="label" style={{ marginBottom: 4 }}>
             Program (School Year)
           </label>
@@ -246,7 +278,6 @@ function StudentsManager() {
             onChange={(e) => setProgram(e.target.value)}
           />
 
-          {/* Active */}
           <div className="row" style={{ alignItems: "center", gap: 10 }}>
             <label className="label">Active</label>
             <input
@@ -256,7 +287,6 @@ function StudentsManager() {
             />
           </div>
 
-          {/* No Bus Days */}
           <label className="label" style={{ marginBottom: 4 }}>
             No-Bus Days
           </label>
@@ -265,11 +295,7 @@ function StudentsManager() {
               <label
                 key={d}
                 className="chip"
-                style={{
-                  padding: "6px 10px",
-                  width: 48,
-                  textAlign: "center",
-                }}
+                style={{ padding: "6px 10px", width: 48, textAlign: "center" }}
               >
                 <input
                   type="checkbox"
@@ -282,7 +308,6 @@ function StudentsManager() {
             ))}
           </div>
 
-          {/* Buttons */}
           <div className="row" style={{ marginTop: 16, gap: 12 }}>
             <button className="btn primary" onClick={saveStudent}>
               {editingId ? "Save Changes" : "Add Student"}
@@ -294,11 +319,10 @@ function StudentsManager() {
         </div>
       </div>
 
-      {/* RIGHT — TABLE */}
+      {/* RIGHT — TABLE (UNCHANGED) */}
       <div className="card" style={{ padding: 24 }}>
         <h3 style={{ marginBottom: 16 }}>All Students</h3>
 
-        {/* Search + Sort + Filter */}
         <div className="row wrap" style={{ gap: 12, marginBottom: 16 }}>
           <input
             placeholder="Search name..."
@@ -329,7 +353,6 @@ function StudentsManager() {
           </select>
         </div>
 
-        {/* TABLE */}
         {loading ? (
           <div className="muted">Loading…</div>
         ) : (
@@ -337,7 +360,7 @@ function StudentsManager() {
             <table className="report-table">
               <thead>
                 <tr style={{ background: "#e6e6e6" }}>
-                  <th style={{ textAlign: "left", width: 180 }}>Name</th>
+                  <th style={{ width: 180, textAlign: "left" }}>Name</th>
                   <th>School</th>
                   <th>Program</th>
                   <th>Active</th>
@@ -348,12 +371,7 @@ function StudentsManager() {
 
               <tbody>
                 {filtered.map((st, i) => (
-                  <tr
-                    key={st.id}
-                    style={{
-                      background: i % 2 === 0 ? "#fff" : "#f7f7f7",
-                    }}
-                  >
+                  <tr key={st.id} style={{ background: i % 2 ? "#f7f7f7" : "#fff" }}>
                     <td style={{ whiteSpace: "nowrap" }}>
                       {sortBy === "last"
                         ? `${st.last_name}, ${st.first_name}`
@@ -367,7 +385,6 @@ function StudentsManager() {
                       <button className="btn" onClick={() => fillForm(st)}>
                         Edit
                       </button>
-                      {/* delete removed per your request */}
                     </td>
                   </tr>
                 ))}
@@ -381,7 +398,7 @@ function StudentsManager() {
 }
 
 /* ============================================================
-   TAB 2 — APPROVED PICKUPS (Correct RPC → fallback behavior)
+   TAB 2 — APPROVED PICKUPS (FIXED)
 ============================================================ */
 function ApprovedPickupsTab() {
   const [rows, setRows] = useState<any[]>([]);
@@ -417,31 +434,30 @@ function ApprovedPickupsTab() {
     })();
   }, []);
 
-  /* === EXACT OLD BEHAVIOR: RPC → fallback → update state === */
   async function savePickups(row: any, newList: string[]) {
     const clean = newList.map((x: string) => x.trim()).filter(Boolean);
 
-    const { error } = await supabase.rpc(
-      "rpc_update_student_approved_pickups",
-      {
-        p_student_id: row.student_id,
-        p_pickups: clean,
-      }
-    );
+    // 1) Try RPC (exact old behavior)
+    const { error } = await supabase.rpc("rpc_update_student_approved_pickups", {
+      p_student_id: row.student_id,
+      p_pickups: clean,
+    });
 
+    // 2) Fallback direct update
     if (error) {
-      console.warn("[RPC failed] falling back to direct update", error);
       const { error: uErr } = await supabase
         .from("students")
         .update({ approved_pickups: clean })
         .eq("id", row.student_id);
 
       if (uErr) {
+        console.error("Approved pickups update failed", uErr);
         alert("Save failed.");
         return;
       }
     }
 
+    // 3) Update UI
     setRows((prev) =>
       prev.map((r) =>
         r.student_id === row.student_id
@@ -470,12 +486,7 @@ function ApprovedPickupsTab() {
 
           <tbody>
             {rows.map((r, i) => (
-              <ApprovedRow
-                key={r.student_id}
-                row={r}
-                index={i}
-                onSave={savePickups}
-              />
+              <ApprovedRow key={r.student_id} row={r} index={i} onSave={savePickups} />
             ))}
           </tbody>
         </table>
@@ -500,34 +511,39 @@ function ApprovedRow({
   function add() {
     const v = draft.trim();
     if (!v) return;
-    setItems((prev: string[]) => [...prev, v]);
+    setItems((prev) => [...prev, v]);
     setDraft("");
   }
 
   return (
-    <tr style={{ background: index % 2 === 0 ? "#fff" : "#f7f7f7" }}>
-      <td style={{ width: 180, whiteSpace: "nowrap" }}>
-        {row.student_name}
-      </td>
+    <tr style={{ background: index % 2 ? "#f7f7f7" : "#fff" }}>
+      <td style={{ width: 180, whiteSpace: "nowrap" }}>{row.student_name}</td>
       <td>{row.school}</td>
 
       {editing ? (
         <td colSpan={2}>
           <div className="col" style={{ gap: 8 }}>
-            <div className="row wrap" style={{ gap: 8 }}>
+            <div
+              className="row wrap"
+              style={{
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
               {items.map((x: string, i: number) => (
                 <span
                   key={i}
                   className="chip"
-                  style={{ whiteSpace: "nowrap" }}
+                  style={{
+                    marginRight: 4,
+                    display: "inline-block",
+                  }}
                 >
                   {x}
                   <button
                     className="btn"
                     onClick={() =>
-                      setItems((prev: string[]) =>
-                        prev.filter((_, idx: number) => idx !== i)
-                      )
+                      setItems((prev) => prev.filter((_, idx) => idx !== i))
                     }
                   >
                     ×
@@ -539,9 +555,9 @@ function ApprovedRow({
             <div className="row" style={{ gap: 8 }}>
               <input
                 value={draft}
-                placeholder="Add name"
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && add()}
+                placeholder="Add name"
               />
               <button className="btn" onClick={add}>
                 Add
@@ -558,6 +574,7 @@ function ApprovedRow({
               >
                 Save
               </button>
+
               <button
                 className="btn"
                 onClick={() => {
@@ -573,22 +590,30 @@ function ApprovedRow({
       ) : (
         <>
           <td>
-            {row.approved_pickups.length === 0 ? (
-              <span className="muted">None</span>
-            ) : (
-              row.approved_pickups.map((x: string, i: number) => (
-                <span
-                  key={i}
-                  className="chip"
-                  style={{
-                    marginRight: 6,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {x}
-                </span>
-              ))
-            )}
+            <div
+              className="row wrap"
+              style={{ gap: 6, flexWrap: "wrap" }}
+            >
+              {row.approved_pickups.length === 0 ? (
+                <span className="muted">None</span>
+              ) : (
+                row.approved_pickups.map((x: string, i: number) => (
+                  <span
+                    key={i}
+                    className="chip"
+                    style={{
+                      marginRight: 6,
+                      display: "inline-block",
+                      maxWidth: "200px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {x}
+                  </span>
+                ))
+              )}
+            </div>
           </td>
 
           <td>
@@ -603,7 +628,7 @@ function ApprovedRow({
 }
 
 /* ============================================================
-   TAB 3 — STUDENT HISTORY  (unchanged functionality)
+   TAB 3 — STUDENT HISTORY (FULL EDITING RESTORED)
 ============================================================ */
 function StudentHistoryTab() {
   const [studentId, setStudentId] = useState("");
@@ -611,9 +636,7 @@ function StudentHistoryTab() {
   const [end, setEnd] = useState(new Date().toISOString().slice(0, 10));
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [students, setStudents] = useState<{ id: string; name: string }[]>(
-    []
-  );
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -635,33 +658,85 @@ function StudentHistoryTab() {
 
   async function run() {
     if (!studentId) return;
-
     setLoading(true);
 
     const { data } = await supabase
       .from("logs")
-      .select("id, roster_date, action, at, meta, student_name")
+      .select("id, roster_date, action, at, meta")
       .eq("student_id", studentId)
       .gte("roster_date", start)
       .lte("roster_date", end)
-      .order("roster_date", { ascending: true })
-      .order("at", { ascending: true });
+      .order("roster_date")
+      .order("at");
 
-    setRows(data || []);
+    const fixed = (data || []).map((r: any) => {
+      const base =
+        r.action === "checked" && r.meta?.pickupTime
+          ? r.meta.pickupTime
+          : r.at;
+
+      return {
+        ...r,
+        baseTime: base,
+      };
+    });
+
+    setRows(fixed);
     setLoading(false);
+  }
+
+  async function saveTime(row: any) {
+    const newLocal = row.__new;
+    if (!newLocal) return;
+
+    try {
+      if (row.action === "checked") {
+        const { error } = await supabase.rpc("rpc_set_log_pickup_time", {
+          p_log_id: row.id,
+          p_pickup_time: newLocal,
+        });
+
+        if (error) {
+          const merged = { ...(row.meta || {}), pickupTime: newLocal };
+          const { error: uErr } = await supabase
+            .from("logs")
+            .update({ meta: merged })
+            .eq("id", row.id);
+
+          if (uErr) throw new Error("Direct update failed");
+        }
+      } else {
+        const iso = estLocalToUtcIso(newLocal) || new Date().toISOString();
+
+        const { error } = await supabase.rpc("rpc_set_log_at", {
+          p_log_id: row.id,
+          p_at_iso: iso,
+        });
+
+        if (error) {
+          const { error: uErr } = await supabase
+            .from("logs")
+            .update({ at: iso })
+            .eq("id", row.id);
+
+          if (uErr) throw new Error("Direct update failed");
+        }
+      }
+
+      await run();
+    } catch (e: any) {
+      console.error("Save time failed", e);
+      alert("Save failed");
+    }
   }
 
   return (
     <div className="card" style={{ padding: 20 }}>
       <h3 style={{ marginBottom: 16 }}>Student History</h3>
 
-      {/* Controls */}
       <div className="row wrap" style={{ gap: 12, marginBottom: 16 }}>
         <label className="label">Student</label>
-        <select
-          value={studentId}
-          onChange={(e) => setStudentId(e.target.value)}
-        >
+        <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
           <option value="">— Select —</option>
           {students.map((s) => (
             <option key={s.id} value={s.id}>
@@ -671,18 +746,10 @@ function StudentHistoryTab() {
         </select>
 
         <label className="label">From</label>
-        <input
-          type="date"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-        />
+        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
 
         <label className="label">To</label>
-        <input
-          type="date"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-        />
+        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
 
         <button className="btn" onClick={run}>
           {loading ? "Loading…" : "Run"}
@@ -699,25 +766,47 @@ function StudentHistoryTab() {
                 <th>Date</th>
                 <th>Action</th>
                 <th>Time</th>
+                <th>Edit</th>
               </tr>
             </thead>
 
             <tbody>
-              {rows.map((r, i) => {
-                const timeLabel = new Intl.DateTimeFormat("en-US", {
-                  hour: "numeric",
+              {rows.map((r: any, i: number) => {
+                const d = new Date(r.baseTime);
+                const ymd = new Intl.DateTimeFormat("en-CA", {
+                  timeZone: "America/New_York",
+                }).format(d);
+                const hm = new Intl.DateTimeFormat("en-GB", {
+                  hour: "2-digit",
                   minute: "2-digit",
                   timeZone: "America/New_York",
-                }).format(new Date(r.at));
+                }).format(d);
+                const localInput = `${ymd}T${hm}`;
 
                 return (
-                  <tr
-                    key={r.id}
-                    style={{ background: i % 2 === 0 ? "#fff" : "#f7f7f7" }}
-                  >
+                  <tr key={r.id} style={{ background: i % 2 ? "#f7f7f7" : "#fff" }}>
                     <td>{r.roster_date}</td>
                     <td>{r.action}</td>
-                    <td>{timeLabel}</td>
+                    <td>
+                      {new Intl.DateTimeFormat("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        timeZone: "America/New_York",
+                      }).format(new Date(r.baseTime))}
+                    </td>
+
+                    <td>
+                      <div className="row" style={{ gap: 8 }}>
+                        <input
+                          type="datetime-local"
+                          defaultValue={localInput}
+                          onChange={(e) => (r.__new = e.target.value)}
+                        />
+                        <button className="btn" onClick={() => saveTime(r)}>
+                          Save
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
